@@ -234,11 +234,11 @@ class ConceptAttentionProcessor:
                         logger.info("Attempting Flux model forward pass with correct input format")
                         
                         try:
-                            # Prepare inputs according to Flux model requirements
-                            x = torch.randn(1, 4, 64, 64, device=self.device)  # Flux expects 4-channel input
-                            timestep = torch.tensor([0.0], device=self.device)
-                            context = torch.randn(1, 77, 2048, device=self.device)  # CLIP context
-                            y = torch.randn(1, 512, device=self.device)  # CLIP pooled
+                            # Prepare inputs according to Flux model requirements - ensure all on same device
+                            x = torch.randn(1, 4, 64, 64, device=self.device, dtype=torch.float32)  # Flux expects 4-channel input
+                            timestep = torch.tensor([0.0], device=self.device, dtype=torch.float32)
+                            context = torch.randn(1, 77, 2048, device=self.device, dtype=torch.float32)  # CLIP context
+                            y = torch.randn(1, 512, device=self.device, dtype=torch.float32)  # CLIP pooled
                             
                             logger.info(f"Flux inputs - x: {x.shape}, timestep: {timestep.shape}, context: {context.shape}, y: {y.shape}")
                             
@@ -277,19 +277,54 @@ class ConceptAttentionProcessor:
                                                         first_block = blocks[0]
                                                         logger.info(f"First block type: {type(first_block)}")
                                                         
-                                                        # Create minimal inputs for the block
-                                                        block_input = torch.randn(1, 256, 64, device=self.device)
-                                                        block_timestep = torch.randn(1, 256, device=self.device)
+                                                        # Create minimal inputs for the block with correct parameters
+                                                        # DoubleStreamBlock needs: x, t, vec, pe
+                                                        block_x = torch.randn(1, 256, 64, 64, device=self.device, dtype=torch.float32)
+                                                        block_t = torch.randn(1, 256, device=self.device, dtype=torch.float32)
+                                                        block_vec = torch.randn(1, 77, 2048, device=self.device, dtype=torch.float32)  # CLIP context
+                                                        block_pe = torch.randn(1, 256, device=self.device, dtype=torch.float32)  # Positional encoding
                                                         
                                                         # Try to run the block
                                                         try:
-                                                            block_output = first_block(block_input, block_timestep)
+                                                            block_output = first_block(block_x, block_t, block_vec, block_pe)
                                                             logger.info(f"Block output: {type(block_output)}, shape: {block_output.shape if hasattr(block_output, 'shape') else 'No shape'}")
                                                         except Exception as block_error:
                                                             logger.warning(f"Block execution failed: {block_error}")
+                                                            # Try with fewer parameters
+                                                            try:
+                                                                block_output = first_block(block_x, block_t)
+                                                                logger.info(f"Block output (minimal): {type(block_output)}, shape: {block_output.shape if hasattr(block_output, 'shape') else 'No shape'}")
+                                                            except Exception as block_error2:
+                                                                logger.warning(f"Block execution (minimal) failed: {block_error2}")
                                             
                                             except Exception as inner_error:
                                                 logger.warning(f"Inner model access failed: {inner_error}")
+                                        
+                                        # Alternative approach: Try to trigger hooks by directly accessing attention layers
+                                        logger.info("Trying alternative hook triggering approach")
+                                        try:
+                                            # Look for attention layers in the model
+                                            attention_layers = []
+                                            for name, module in actual_model.named_modules():
+                                                if 'attn' in name.lower() or 'attention' in name.lower():
+                                                    attention_layers.append((name, module))
+                                            
+                                            logger.info(f"Found {len(attention_layers)} potential attention layers")
+                                            
+                                            # Try to trigger hooks by running a simple operation on attention layers
+                                            for name, layer in attention_layers[:3]:  # Try first 3 layers
+                                                try:
+                                                    logger.info(f"Trying to trigger hook on layer: {name}")
+                                                    # Create a simple input for the layer
+                                                    if hasattr(layer, 'weight'):
+                                                        # Just access the weight to potentially trigger computation
+                                                        _ = layer.weight
+                                                        logger.info(f"Successfully accessed weight of {name}")
+                                                except Exception as layer_error:
+                                                    logger.warning(f"Failed to access layer {name}: {layer_error}")
+                                                    
+                                        except Exception as alt_error:
+                                            logger.warning(f"Alternative hook triggering failed: {alt_error}")
                                         
                             elif hasattr(actual_model, 'forward'):
                                 result = actual_model.forward(x, timestep, context, y)
