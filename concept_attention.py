@@ -36,8 +36,13 @@ class ConceptAttention:
             # Capture outputs from attention-related modules
             if any(keyword in module_name.lower() for keyword in ['attention', 'attn', 'query', 'key', 'value', 'proj']):
                 self.attention_outputs[module_name] = output
-                logger.info(f"Captured output from {module_name}, shape: {output.shape}")
-                logger.info(f"Output type: {type(output)}, device: {output.device if hasattr(output, 'device') else 'N/A'}")
+                logger.info(f"🎯 HOOK TRIGGERED! Captured output from {module_name}")
+                logger.info(f"   Shape: {output.shape}")
+                logger.info(f"   Type: {type(output)}")
+                logger.info(f"   Device: {output.device if hasattr(output, 'device') else 'N/A'}")
+                logger.info(f"   Total attention outputs captured: {len(self.attention_outputs)}")
+            else:
+                logger.debug(f"Hook called on {module_name} but not capturing (not attention-related)")
         
         # Get the actual model from ModelPatcher
         actual_model = getattr(self.model, 'model', self.model)
@@ -267,10 +272,9 @@ class ConceptAttentionProcessor:
             
         except Exception as e:
             logger.error(f"Error processing image: {e}")
-            # Fallback to mock data if real implementation fails
-            logger.info("Falling back to mock data")
-            saliency_maps = self._create_mock_saliency_maps(image, concepts)
-            return saliency_maps
+            # No fallback to mock data - force real implementation
+            logger.error("Real attention extraction failed. No mock data fallback.")
+            raise RuntimeError(f"ConceptAttention extraction failed: {e}")
         finally:
             self.concept_attention.cleanup_hooks()
     
@@ -319,8 +323,9 @@ class ConceptAttentionProcessor:
         concept_maps = {}
         
         if not hasattr(self.concept_attention, 'attention_outputs') or not self.concept_attention.attention_outputs:
-            logger.warning("No attention outputs captured, creating mock maps")
-            return self._create_mock_saliency_maps(torch.randn(image_shape), list(concept_embeddings.keys()))
+            logger.error("No attention outputs captured! This means hooks are not working properly.")
+            logger.error("Available attention_outputs:", getattr(self.concept_attention, 'attention_outputs', 'None'))
+            raise RuntimeError("Failed to capture attention outputs from the model. Hooks may not be working correctly.")
         
         try:
             # Get the first available attention output
