@@ -234,23 +234,29 @@ class ConceptAttentionProcessor:
                     if actual_model is not None:
                         logger.info(f"Using actual model: {type(actual_model)}")
                         
-                        # Check model device and move to correct device if needed
+                        # Check model device and dtype, move to correct device if needed
                         model_device = next(actual_model.parameters()).device
+                        model_dtype = next(actual_model.parameters()).dtype
                         logger.info(f"Model device: {model_device}, Target device: {self.device}")
+                        logger.info(f"Model dtype: {model_dtype}")
                         
                         if model_device != self.device:
                             logger.info(f"Moving model from {model_device} to {self.device}")
                             actual_model = actual_model.to(self.device)
                         
+                        # Update model dtype for consistency
+                        if model_dtype != torch.float32:
+                            logger.info(f"Model uses {model_dtype}, will use this dtype for inputs")
+                        
                         # For Flux models, we need the correct input format
                         logger.info("Attempting Flux model forward pass with correct input format")
                         
                         try:
-                            # Prepare inputs according to Flux model requirements - ensure all on same device as model
-                            x = torch.randn(1, 4, 64, 64, device=self.device, dtype=torch.float32)  # Flux expects 4-channel input
-                            timestep = torch.tensor([0.0], device=self.device, dtype=torch.float32)
-                            context = torch.randn(1, 77, 2048, device=self.device, dtype=torch.float32)  # CLIP context
-                            y = torch.randn(1, 512, device=self.device, dtype=torch.float32)  # CLIP pooled
+                            # Prepare inputs according to Flux model requirements - use model's dtype
+                            x = torch.randn(1, 4, 64, 64, device=self.device, dtype=model_dtype)  # Flux expects 4-channel input
+                            timestep = torch.tensor([0.0], device=self.device, dtype=model_dtype)
+                            context = torch.randn(1, 77, 2048, device=self.device, dtype=model_dtype)  # CLIP context
+                            y = torch.randn(1, 512, device=self.device, dtype=model_dtype)  # CLIP pooled
                             
                             logger.info(f"Flux inputs - x: {x.shape}, timestep: {timestep.shape}, context: {context.shape}, y: {y.shape}")
                             
@@ -289,12 +295,12 @@ class ConceptAttentionProcessor:
                                                         first_block = blocks[0]
                                                         logger.info(f"First block type: {type(first_block)}")
                                                         
-                                                        # Create minimal inputs for the block with correct parameters
+                                                        # Create minimal inputs for the block with correct parameters and dtype
                                                         # DoubleStreamBlock needs: x, t, vec, pe
-                                                        block_x = torch.randn(1, 256, 64, 64, device=self.device, dtype=torch.float32)
-                                                        block_t = torch.randn(1, 256, device=self.device, dtype=torch.float32)
-                                                        block_vec = torch.randn(1, 77, 2048, device=self.device, dtype=torch.float32)  # CLIP context
-                                                        block_pe = torch.randn(1, 256, device=self.device, dtype=torch.float32)  # Positional encoding
+                                                        block_x = torch.randn(1, 256, 64, 64, device=self.device, dtype=model_dtype)
+                                                        block_t = torch.randn(1, 256, device=self.device, dtype=model_dtype)
+                                                        block_vec = torch.randn(1, 77, 2048, device=self.device, dtype=model_dtype)  # CLIP context
+                                                        block_pe = torch.randn(1, 256, device=self.device, dtype=model_dtype)  # Positional encoding
                                                         
                                                         # Try to run the block
                                                         try:
@@ -330,16 +336,20 @@ class ConceptAttentionProcessor:
                                                     
                                                     # Try to run a forward pass on the layer if possible
                                                     if hasattr(layer, 'forward'):
-                                                        # Create appropriate input based on layer type
+                                                        # Create appropriate input based on layer type and expected shape
                                                         if 'qkv' in name.lower():
                                                             # QKV layer expects different input
-                                                            layer_input = torch.randn(1, 1024, 256, device=self.device, dtype=torch.float32)
+                                                            layer_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
                                                         elif 'norm' in name.lower():
-                                                            # Norm layer
-                                                            layer_input = torch.randn(1, 1024, 256, device=self.device, dtype=torch.float32)
+                                                            # Norm layer - check if it's query_norm, key_norm, etc.
+                                                            if 'query_norm' in name.lower() or 'key_norm' in name.lower():
+                                                                # These expect shape [*, 128] based on error message
+                                                                layer_input = torch.randn(1, 128, device=self.device, dtype=model_dtype)
+                                                            else:
+                                                                layer_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
                                                         else:
                                                             # Default attention layer
-                                                            layer_input = torch.randn(1, 1024, 256, device=self.device, dtype=torch.float32)
+                                                            layer_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
                                                         
                                                         try:
                                                             layer_output = layer(layer_input)
@@ -360,6 +370,21 @@ class ConceptAttentionProcessor:
                                                     
                                         except Exception as alt_error:
                                             logger.warning(f"Alternative hook triggering failed: {alt_error}")
+                                        
+                                        # Final attempt: Try to trigger hooks by accessing model parameters
+                                        logger.info("Final attempt: Accessing model parameters to trigger hooks")
+                                        try:
+                                            param_count = 0
+                                            for name, param in actual_model.named_parameters():
+                                                if 'attn' in name.lower() or 'attention' in name.lower():
+                                                    # Access the parameter to potentially trigger computation
+                                                    _ = param.data
+                                                    param_count += 1
+                                                    if param_count >= 10:  # Limit to avoid too much computation
+                                                        break
+                                            logger.info(f"Accessed {param_count} attention-related parameters")
+                                        except Exception as param_error:
+                                            logger.warning(f"Parameter access failed: {param_error}")
                                         
                             elif hasattr(actual_model, 'forward'):
                                 result = actual_model.forward(x, timestep, context, y)
