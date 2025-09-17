@@ -36,7 +36,7 @@ class ConceptAttention:
             logger.info(f"🔍 HOOK CALLED on {module_name} - checking if attention-related")
             
             # Capture outputs from attention-related modules
-            if any(keyword in module_name.lower() for keyword in ['attention', 'attn', 'query', 'key', 'value', 'proj']):
+            if any(keyword in module_name.lower() for keyword in ['attention', 'attn', 'query', 'key', 'value', 'proj', 'norm']):
                 # Create a unique key for this hook
                 hook_key = f"{module_name}_{id(module)}"
                 self.attention_outputs[hook_key] = output
@@ -421,6 +421,9 @@ class ConceptAttentionProcessor:
                                                             # QKV layer expects input that matches the weight matrix dimensions
                                                             # Weight matrix is (3072, 3072), so input should be (batch, seq_len, 3072)
                                                             layer_input = torch.randn(1, 1024, 3072, device=self.device, dtype=model_dtype)
+                                                        elif 'proj' in name.lower():
+                                                            # Proj layer also expects input that matches weight matrix (3072, 3072)
+                                                            layer_input = torch.randn(1, 1024, 3072, device=self.device, dtype=model_dtype)
                                                         elif 'norm' in name.lower():
                                                             # Norm layer - check if it's query_norm, key_norm, etc.
                                                             if 'query_norm' in name.lower() or 'key_norm' in name.lower():
@@ -486,6 +489,9 @@ class ConceptAttentionProcessor:
                                                                     test_input = torch.randn(1, 128, device=self.device, dtype=model_dtype)
                                                                 elif 'qkv' in name.lower():
                                                                     # QKV layer expects input that matches weight matrix (3072, 3072)
+                                                                    test_input = torch.randn(1, 1024, 3072, device=self.device, dtype=model_dtype)
+                                                                elif 'proj' in name.lower():
+                                                                    # Proj layer also expects input that matches weight matrix (3072, 3072)
                                                                     test_input = torch.randn(1, 1024, 3072, device=self.device, dtype=model_dtype)
                                                                 else:
                                                                     test_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
