@@ -335,30 +335,32 @@ class ConceptSegmentationNode:
                 print(f"DEBUG: Default region for {concept}: {i*h//len(concept_list)}:{(i+1)*h//len(concept_list)}")
         
         print(f"DEBUG: Segmentation mask unique values: {torch.unique(segmentation_mask)}")
-        else:
-            # Assign each pixel to the concept with highest attention
-            for i, concept in enumerate(concept_list):
-                if concept in concept_maps:
-                    concept_map = concept_maps[concept]
-                    
-                    # Ensure concept_map is 2D
-                    if len(concept_map.shape) == 3:
-                        concept_map = concept_map.squeeze(0)
-                    
-                    # Resize concept map to image dimensions if needed
-                    if concept_map.shape != (h, w):
-                        concept_resized = F.interpolate(
-                            concept_map.unsqueeze(0).unsqueeze(0),
-                            size=(h, w),
-                            mode='bilinear',
-                            align_corners=False
-                        ).squeeze()
-                    else:
-                        concept_resized = concept_map
-                    
-                    # Update segmentation mask (assign concept index to pixels with highest attention)
-                    mask_indices = concept_resized > segmentation_mask[0]
-                    segmentation_mask[0, mask_indices] = i + 1
+        
+        # Note: The else block below is commented out since we're using mock data
+        # else:
+        #     # Assign each pixel to the concept with highest attention
+        #     for i, concept in enumerate(concept_list):
+        #         if concept in concept_maps:
+        #             concept_map = concept_maps[concept]
+        #             
+        #             # Ensure concept_map is 2D
+        #             if len(concept_map.shape) == 3:
+        #                 concept_map = concept_map.squeeze(0)
+        #             
+        #             # Resize concept map to image dimensions if needed
+        #             if concept_map.shape != (h, w):
+        #                 concept_resized = F.interpolate(
+        #                     concept_map.unsqueeze(0).unsqueeze(0),
+        #                     size=(h, w),
+        #                     mode='bilinear',
+        #                     align_corners=False
+        #                 ).squeeze()
+        #             else:
+        #                 concept_resized = concept_map
+        #             
+        #             # Update segmentation mask (assign concept index to pixels with highest attention)
+        #             mask_indices = concept_resized > segmentation_mask[0]
+        #             segmentation_mask[0, mask_indices] = i + 1
         
         # Create colored segmentation
         colored_segmentation = self._create_colored_segmentation(segmentation_mask, concept_list)
