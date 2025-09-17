@@ -36,7 +36,7 @@ class ConceptAttention:
             logger.info(f"🔍 HOOK CALLED on {module_name} - checking if attention-related")
             
             # Capture outputs from attention-related modules
-            if any(keyword in module_name.lower() for keyword in ['attention', 'attn', 'query', 'key', 'value', 'proj', 'norm']):
+            if any(keyword in module_name.lower() for keyword in ['attention', 'attn', 'query', 'key', 'value', 'proj', 'norm', 'linear']):
                 # Create a unique key for this hook
                 hook_key = f"{module_name}_{id(module)}"
                 self.attention_outputs[hook_key] = output
@@ -86,7 +86,7 @@ class ConceptAttention:
         try:
             hook_count = 0
             for name, module in actual_model.named_modules():
-                if 'attention' in name.lower() or 'attn' in name.lower():
+                if any(keyword in name.lower() for keyword in ['attention', 'attn', 'query', 'key', 'value', 'proj']):
                     hook = module.register_forward_hook(hook_fn)
                     self.attention_hooks.append(hook)
                     hook_count += 1
@@ -476,9 +476,9 @@ class ConceptAttentionProcessor:
                                             if hasattr(self.concept_attention, 'attention_hooks') and self.concept_attention.attention_hooks:
                                                 logger.info(f"Found {len(self.concept_attention.attention_hooks)} registered hooks")
                                                 
-                                                # Try to find the modules that have hooks and call them directly
-                                                for name, module in actual_model.named_modules():
-                                                    if 'attention' in name.lower() or 'attn' in name.lower():
+                # Try to find the modules that have hooks and call them directly
+                for name, module in actual_model.named_modules():
+                    if any(keyword in name.lower() for keyword in ['attention', 'attn', 'query', 'key', 'value', 'proj']):
                                                         # Check if this module has a hook
                                                         if hasattr(module, '_forward_hooks') and module._forward_hooks:
                                                             logger.info(f"Module {name} has {len(module._forward_hooks)} hooks")
