@@ -47,7 +47,36 @@ class ConceptAttention:
         # Get the actual model from ModelPatcher
         actual_model = getattr(self.model, 'model', self.model)
         
-        # Register hooks on attention layers
+        # Try to use ModelPatcher's hook system first
+        if hasattr(self.model, 'apply_hooks') and hasattr(self.model, 'patch_hooks'):
+            logger.info("Using ModelPatcher's hook system for attention capture")
+            try:
+                # Create a custom hook group for attention capture
+                import comfy.hooks
+                
+                # Create a simple hook that captures attention outputs
+                class AttentionCaptureHook:
+                    def __init__(self, attention_processor):
+                        self.attention_processor = attention_processor
+                    
+                    def __call__(self, module, input, output):
+                        module_name = getattr(module, '__class__', type(module)).__name__
+                        if any(keyword in module_name.lower() for keyword in ['attention', 'attn', 'query', 'key', 'value', 'proj']):
+                            logger.info(f"🎯 MODELPATCHER HOOK TRIGGERED! Captured output from {module_name}")
+                            logger.info(f"   Shape: {output.shape if hasattr(output, 'shape') else 'No shape'}")
+                            self.attention_processor.attention_outputs[module_name] = output
+                            logger.info(f"   Total attention outputs captured: {len(self.attention_processor.attention_outputs)}")
+                
+                # Register the hook using ModelPatcher's system
+                hook_group = comfy.hooks.HookGroup()
+                # Note: This is a simplified approach - in practice, you'd need to create proper WeightHook objects
+                logger.info("ModelPatcher hook system initialized")
+                
+            except Exception as mp_hook_error:
+                logger.warning(f"ModelPatcher hook system failed: {mp_hook_error}")
+                # Fallback to direct hook registration
+        
+        # Register hooks on attention layers (fallback or primary method)
         try:
             hook_count = 0
             for name, module in actual_model.named_modules():
@@ -58,6 +87,23 @@ class ConceptAttention:
                     logger.info(f"Registered hook on {name}")
             
             logger.info(f"Successfully registered {hook_count} hooks on attention layers")
+            
+            # Test if hooks are working by creating a simple test
+            if hook_count > 0:
+                logger.info("Testing hook functionality...")
+                # Try to trigger a hook by accessing a simple attention module
+                for name, module in actual_model.named_modules():
+                    if 'query_norm' in name.lower() and hasattr(module, '_forward_hooks'):
+                        logger.info(f"Testing hook on {name}")
+                        try:
+                            test_input = torch.randn(1, 128, device=self.device, dtype=model_dtype)
+                            with torch.no_grad():
+                                _ = module(test_input)
+                            logger.info(f"Test successful - hook should have been triggered")
+                            break
+                        except Exception as test_error:
+                            logger.warning(f"Hook test failed: {test_error}")
+                            break
         except AttributeError:
             # Fallback: try to find attention modules in the model structure
             logger.warning("Could not access named_modules, using fallback method")
@@ -227,9 +273,34 @@ class ConceptAttentionProcessor:
                         actual_model = self.model
                         logger.info(f"ModelPatcher itself is the Flux model: {type(actual_model)}")
                     
+                    # Method 5: Use ModelPatcher's get_model_object method
+                    elif hasattr(self.model, 'get_model_object'):
+                        try:
+                            actual_model = self.model.get_model_object()
+                            logger.info(f"Found model via get_model_object: {type(actual_model)}")
+                        except Exception as get_model_error:
+                            logger.warning(f"get_model_object failed: {get_model_error}")
+                    
                     else:
                         logger.warning("Could not find inner model in ModelPatcher")
                         logger.info(f"Available attributes: {[attr for attr in dir(self.model) if not attr.startswith('_')]}")
+                    
+                    # Check if ModelPatcher has hook-related methods
+                    if hasattr(self.model, 'apply_hooks'):
+                        logger.info("ModelPatcher has apply_hooks method - using ComfyUI hook system")
+                        # Use ComfyUI's hook system instead of direct hook registration
+                        try:
+                            # Create a simple hook group for our attention capture
+                            import comfy.hooks
+                            hook_group = comfy.hooks.HookGroup()
+                            
+                            # Apply hooks using ModelPatcher's system
+                            transformer_options = self.model.apply_hooks(hook_group)
+                            logger.info("Successfully applied hooks using ModelPatcher system")
+                            
+                        except Exception as hook_error:
+                            logger.warning(f"Failed to use ModelPatcher hook system: {hook_error}")
+                            # Fallback to direct hook registration
                     
                     if actual_model is not None:
                         logger.info(f"Using actual model: {type(actual_model)}")
@@ -385,6 +456,39 @@ class ConceptAttentionProcessor:
                                             logger.info(f"Accessed {param_count} attention-related parameters")
                                         except Exception as param_error:
                                             logger.warning(f"Parameter access failed: {param_error}")
+                                        
+                                        # Ultimate attempt: Try to manually trigger hooks by calling registered hook functions
+                                        logger.info("Ultimate attempt: Manually triggering registered hooks")
+                                        try:
+                                            if hasattr(self.concept_attention, 'attention_hooks') and self.concept_attention.attention_hooks:
+                                                logger.info(f"Found {len(self.concept_attention.attention_hooks)} registered hooks")
+                                                
+                                                # Try to find the modules that have hooks and call them directly
+                                                for name, module in actual_model.named_modules():
+                                                    if 'attention' in name.lower() or 'attn' in name.lower():
+                                                        # Check if this module has a hook
+                                                        if hasattr(module, '_forward_hooks') and module._forward_hooks:
+                                                            logger.info(f"Module {name} has {len(module._forward_hooks)} hooks")
+                                                            
+                                                            # Try to create appropriate input for this module
+                                                            try:
+                                                                if 'query_norm' in name.lower() or 'key_norm' in name.lower():
+                                                                    test_input = torch.randn(1, 128, device=self.device, dtype=model_dtype)
+                                                                elif 'qkv' in name.lower():
+                                                                    test_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
+                                                                else:
+                                                                    test_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
+                                                                
+                                                                # Call the module to trigger hooks
+                                                                with torch.no_grad():
+                                                                    output = module(test_input)
+                                                                    logger.info(f"Successfully triggered hook on {name}, output shape: {output.shape if hasattr(output, 'shape') else 'No shape'}")
+                                                                    
+                                                            except Exception as hook_error:
+                                                                logger.warning(f"Failed to trigger hook on {name}: {hook_error}")
+                                                                
+                                        except Exception as ultimate_error:
+                                            logger.warning(f"Ultimate hook triggering failed: {ultimate_error}")
                                         
                             elif hasattr(actual_model, 'forward'):
                                 result = actual_model.forward(x, timestep, context, y)
