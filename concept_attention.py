@@ -190,22 +190,31 @@ class ConceptAttentionProcessor:
             saliency_map = torch.zeros((h, w))
             
             # Create different patterns for different concepts
-            if 'person' in concept.lower():
-                # Center region for person
+            if 'woman' in concept.lower():
+                # Center region for woman
                 center_h, center_w = h // 2, w // 2
                 y, x = torch.meshgrid(torch.arange(h), torch.arange(w), indexing='ij')
                 dist = torch.sqrt((x - center_w)**2 + (y - center_h)**2)
                 saliency_map = torch.exp(-dist / (min(h, w) * 0.2))
-            elif 'car' in concept.lower():
-                # Bottom region for car
-                saliency_map[h//2:, :] = torch.rand(h//2, w) * 0.8
-            elif 'sky' in concept.lower():
-                # Top region for sky
-                saliency_map[:h//2, :] = torch.rand(h//2, w) * 0.8
-            elif 'tree' in concept.lower():
-                # Side regions for trees
-                saliency_map[:, :w//3] = torch.rand(h, w//3) * 0.6
-                saliency_map[:, 2*w//3:] = torch.rand(h, w//3) * 0.6
+            elif 'cat' in concept.lower():
+                # Shoulder region for cat
+                saliency_map[h//4:h//2, w//3:2*w//3] = torch.rand(h//4, w//3) * 0.8
+            elif 'white' in concept.lower():
+                # Scattered white regions
+                saliency_map = torch.rand(h, w) * 0.6
+                # Add some bright spots
+                for _ in range(5):
+                    y, x = torch.randint(0, h, (1,)), torch.randint(0, w, (1,))
+                    saliency_map[max(0, y-10):min(h, y+10), max(0, x-10):min(w, x+10)] = 1.0
+            elif 'lines' in concept.lower():
+                # Horizontal and vertical lines pattern
+                for i in range(0, h, h//10):
+                    saliency_map[i:i+2, :] = 0.8
+                for j in range(0, w, w//10):
+                    saliency_map[:, j:j+2] = 0.8
+            elif 'cane' in concept.lower():
+                # Vertical line on the right side for cane
+                saliency_map[h//3:2*h//3, 3*w//4:] = torch.rand(h//3, w//4) * 0.7
             else:
                 # Random pattern for other concepts
                 saliency_map = torch.rand(h, w) * 0.5

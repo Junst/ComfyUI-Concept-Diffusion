@@ -26,7 +26,8 @@
       "mode": 0,
       "outputs": [
         {"name": "MODEL", "type": "MODEL", "links": [2], "slot_index": 0},
-        {"name": "CLIP", "type": "CLIP", "links": [3], "slot_index": 1}
+        {"name": "CLIP", "type": "CLIP", "links": [3], "slot_index": 1},
+        {"name": "VAE", "type": "VAE", "links": null, "slot_index": 2}
       ],
       "properties": {"Node name for S&R": "CheckpointLoaderSimple"},
       "widgets_values": ["flux1-dev.safetensors"]
@@ -49,7 +50,7 @@
         {"name": "visualized_image", "type": "IMAGE", "links": [6], "slot_index": 1}
       ],
       "properties": {"Node name for S&R": "ConceptAttentionNode"},
-      "widgets_values": ["Elderly woman character with white hair and a red dress holding a cane and accompanied by a small white cat on her shoulder. Cartoon style with smooth lines and exaggerated facial features offering a whimsical and friendly appearance. Her name is abae.", 20, 0]
+      "widgets_values": ["person, car, tree, sky, building", 20, 0]
     },
     {
       "id": 4,
@@ -69,7 +70,7 @@
         {"name": "saliency_image", "type": "IMAGE", "links": [8], "slot_index": 1}
       ],
       "properties": {"Node name for S&R": "ConceptSaliencyMapNode"},
-      "widgets_values": ["woman", 0.5]
+      "widgets_values": ["person", 0.5]
     },
     {
       "id": 5,
@@ -89,7 +90,7 @@
         {"name": "segmented_image", "type": "IMAGE", "links": [10], "slot_index": 1}
       ],
       "properties": {"Node name for S&R": "ConceptSegmentationNode"},
-      "widgets_values": ["woman, cat, white, lines, cane"]
+      "widgets_values": ["person, car, tree, sky, building"]
     },
     {
       "id": 6,

@@ -25,7 +25,7 @@ class ConceptAttentionNode:
                 "image": ("IMAGE",),
                 "concepts": ("STRING", {
                     "multiline": True,
-                    "default": "person, car, tree, sky, building"
+                    "default": "woman, cat, white, lines, cane"
                 }),
                 "num_inference_steps": ("INT", {
                     "default": 20,
@@ -150,7 +150,7 @@ class ConceptSaliencyMapNode:
         return {
             "required": {
                 "concept_maps": ("CONCEPT_MAPS",),
-                "concept_name": ("STRING", {"default": "person"}),
+                "concept_name": ("STRING", {"default": "woman"}),
                 "threshold": ("FLOAT", {
                     "default": 0.5,
                     "min": 0.0,
@@ -210,7 +210,7 @@ class ConceptSegmentationNode:
                 "image": ("IMAGE",),
                 "concepts": ("STRING", {
                     "multiline": True,
-                    "default": "person, car, tree, sky, building"
+                    "default": "woman, cat, white, lines, cane"
                 }),
             }
         }
@@ -273,11 +273,16 @@ class ConceptSegmentationNode:
         
         # Define colors for each concept
         colors = {
-            'person': [1.0, 0.0, 0.0],  # Red
-            'car': [0.0, 1.0, 0.0],     # Green
-            'tree': [0.0, 0.0, 1.0],    # Blue
-            'sky': [1.0, 1.0, 0.0],     # Yellow
-            'building': [1.0, 0.0, 1.0], # Magenta
+            'woman': [1.0, 0.0, 0.0],   # Red
+            'cat': [0.0, 1.0, 0.0],     # Green
+            'white': [1.0, 1.0, 1.0],   # White
+            'lines': [0.0, 0.0, 1.0],   # Blue
+            'cane': [1.0, 0.0, 1.0],    # Magenta
+            'person': [1.0, 0.0, 0.0],  # Red (fallback)
+            'car': [0.0, 1.0, 0.0],     # Green (fallback)
+            'tree': [0.0, 0.0, 1.0],    # Blue (fallback)
+            'sky': [1.0, 1.0, 0.0],     # Yellow (fallback)
+            'building': [1.0, 0.0, 1.0], # Magenta (fallback)
         }
         
         # Apply colors based on segmentation mask
@@ -352,11 +357,16 @@ class ConceptAttentionVisualizerNode:
         Get color for a concept.
         """
         colors = {
-            'person': [1.0, 0.0, 0.0],  # Red
-            'car': [0.0, 1.0, 0.0],     # Green
-            'tree': [0.0, 0.0, 1.0],    # Blue
-            'sky': [1.0, 1.0, 0.0],     # Yellow
-            'building': [1.0, 0.0, 1.0], # Magenta
+            'woman': [1.0, 0.0, 0.0],   # Red
+            'cat': [0.0, 1.0, 0.0],     # Green
+            'white': [1.0, 1.0, 1.0],   # White
+            'lines': [0.0, 0.0, 1.0],   # Blue
+            'cane': [1.0, 0.0, 1.0],    # Magenta
+            'person': [1.0, 0.0, 0.0],  # Red (fallback)
+            'car': [0.0, 1.0, 0.0],     # Green (fallback)
+            'tree': [0.0, 0.0, 1.0],    # Blue (fallback)
+            'sky': [1.0, 1.0, 0.0],     # Yellow (fallback)
+            'building': [1.0, 0.0, 1.0], # Magenta (fallback)
         }
         return colors.get(concept.lower(), [1.0, 1.0, 1.0])
 

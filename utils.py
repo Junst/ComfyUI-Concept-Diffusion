@@ -80,16 +80,16 @@ def create_concept_colors(concepts: List[str]) -> Dict[str, Tuple[float, float, 
     """
     # Predefined colors
     predefined_colors = {
-        'person': (1.0, 0.0, 0.0),      # Red
-        'car': (0.0, 1.0, 0.0),         # Green
-        'tree': (0.0, 0.0, 1.0),        # Blue
-        'sky': (1.0, 1.0, 0.0),         # Yellow
-        'building': (1.0, 0.0, 1.0),    # Magenta
-        'road': (0.5, 0.5, 0.5),        # Gray
-        'grass': (0.0, 0.8, 0.0),       # Dark Green
-        'water': (0.0, 0.5, 1.0),       # Light Blue
-        'mountain': (0.6, 0.4, 0.2),    # Brown
-        'cloud': (0.9, 0.9, 0.9),       # Light Gray
+        'woman': (1.0, 0.0, 0.0),       # Red
+        'cat': (0.0, 1.0, 0.0),         # Green
+        'white': (1.0, 1.0, 1.0),       # White
+        'lines': (0.0, 0.0, 1.0),       # Blue
+        'cane': (1.0, 0.0, 1.0),        # Magenta
+        'person': (1.0, 0.0, 0.0),      # Red (fallback)
+        'car': (0.0, 1.0, 0.0),         # Green (fallback)
+        'tree': (0.0, 0.0, 1.0),        # Blue (fallback)
+        'sky': (1.0, 1.0, 0.0),         # Yellow (fallback)
+        'building': (1.0, 0.0, 1.0),    # Magenta (fallback)
     }
     
     colors = {}
@@ -304,3 +304,4 @@ def save_saliency_maps(saliency_maps: Dict[str, torch.Tensor], output_dir: str, 
         img.save(filepath)
         
         logger.info(f"Saved saliency map: {filepath}")
+
