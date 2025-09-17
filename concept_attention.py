@@ -33,9 +33,11 @@ class ConceptAttention:
         def hook_fn(module, input, output):
             # Store attention outputs for concept extraction
             module_name = getattr(module, '__class__', type(module)).__name__
-            if 'attention' in module_name.lower() or 'attn' in module_name.lower():
+            # Capture outputs from attention-related modules
+            if any(keyword in module_name.lower() for keyword in ['attention', 'attn', 'query', 'key', 'value', 'proj']):
                 self.attention_outputs[module_name] = output
-                logger.info(f"Captured attention output from {module_name}, shape: {output.shape}")
+                logger.info(f"Captured output from {module_name}, shape: {output.shape}")
+                logger.info(f"Output type: {type(output)}, device: {output.device if hasattr(output, 'device') else 'N/A'}")
         
         # Get the actual model from ModelPatcher
         actual_model = getattr(self.model, 'model', self.model)
@@ -178,11 +180,37 @@ class ConceptAttentionProcessor:
             
             # Run model forward pass to capture attention
             with torch.no_grad():
-                # For now, skip the actual model forward pass since ModelPatcher is complex
-                # and focus on getting the attention extraction working with mock data
-                logger.info("Skipping model forward pass for now, using mock data")
-                logger.info("This is expected behavior - real attention extraction will be implemented")
-                logger.info("when we have proper access to the DiT model's attention layers")
+                logger.info("Attempting to run model forward pass to capture attention")
+                
+                # Prepare input for the diffusion model
+                batch_size = image.shape[0]
+                height, width = image.shape[1], image.shape[2]
+                
+                # Create dummy timestep and noise for DiT
+                timestep = torch.tensor([0], device=self.device)
+                noise = torch.randn_like(image)
+                
+                try:
+                    # Get the actual model from ModelPatcher
+                    actual_model = getattr(self.model, 'model', self.model)
+                    logger.info(f"Using actual model: {type(actual_model)}")
+                    
+                    # Try to run the model to trigger hooks
+                    if hasattr(actual_model, 'apply_model'):
+                        logger.info("Using apply_model method")
+                        _ = actual_model.apply_model(noise, timestep)
+                    elif hasattr(actual_model, 'forward'):
+                        logger.info("Using forward method")
+                        _ = actual_model(noise, timestep)
+                    else:
+                        logger.info("Trying direct model call")
+                        _ = actual_model(noise)
+                    
+                    logger.info("Model forward pass completed successfully")
+                    
+                except Exception as e:
+                    logger.warning(f"Model forward pass failed: {e}")
+                    logger.info("Will use mock data as fallback")
             
             # Process attention outputs to create concept maps
             concept_maps = self._create_concept_maps_from_attention(concept_embeddings, image.shape)
