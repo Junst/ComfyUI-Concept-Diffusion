@@ -191,44 +191,68 @@ class ConceptAttentionProcessor:
                 noise = torch.randn_like(image)
                 
                 try:
-                    # Get the actual model from ModelPatcher
-                    actual_model = getattr(self.model, 'model', self.model)
-                    logger.info(f"Using actual model: {type(actual_model)}")
+                    # Debug ModelPatcher structure
+                    logger.info(f"ModelPatcher type: {type(self.model)}")
+                    logger.info(f"ModelPatcher attributes: {dir(self.model)}")
                     
-                    # For Flux models, we need the correct input format based on ComfyUI reference
-                    # Flux forward signature: (x, timestep, context, y=None, guidance=None, ...)
-                    logger.info("Attempting Flux model forward pass with correct input format")
+                    # Try different ways to access the actual model
+                    actual_model = None
                     
-                    try:
-                        # Prepare inputs according to Flux model requirements
-                        # x: input tensor (noise)
-                        x = torch.randn(1, 4, 64, 64, device=self.device)  # Flux expects 4-channel input
+                    # Method 1: Check for 'model' attribute
+                    if hasattr(self.model, 'model'):
+                        actual_model = self.model.model
+                        logger.info(f"Found model via 'model' attribute: {type(actual_model)}")
+                    
+                    # Method 2: Check for 'diffusion_model' attribute
+                    elif hasattr(self.model, 'diffusion_model'):
+                        actual_model = self.model.diffusion_model
+                        logger.info(f"Found model via 'diffusion_model' attribute: {type(actual_model)}")
+                    
+                    # Method 3: Check for 'unet_model' attribute
+                    elif hasattr(self.model, 'unet_model'):
+                        actual_model = self.model.unet_model
+                        logger.info(f"Found model via 'unet_model' attribute: {type(actual_model)}")
+                    
+                    # Method 4: Check if the model itself is the Flux model
+                    elif 'Flux' in str(type(self.model)):
+                        actual_model = self.model
+                        logger.info(f"ModelPatcher itself is the Flux model: {type(actual_model)}")
+                    
+                    else:
+                        logger.warning("Could not find inner model in ModelPatcher")
+                        logger.info(f"Available attributes: {[attr for attr in dir(self.model) if not attr.startswith('_')]}")
+                    
+                    if actual_model is not None:
+                        logger.info(f"Using actual model: {type(actual_model)}")
                         
-                        # timestep: timestep tensor
-                        timestep = torch.tensor([0.0], device=self.device)
+                        # For Flux models, we need the correct input format
+                        logger.info("Attempting Flux model forward pass with correct input format")
                         
-                        # context: text context (CLIP embeddings)
-                        context = torch.randn(1, 77, 2048, device=self.device)  # CLIP context
-                        
-                        # y: CLIP pooled output
-                        y = torch.randn(1, 512, device=self.device)  # CLIP pooled
-                        
-                        logger.info(f"Flux inputs - x: {x.shape}, timestep: {timestep.shape}, context: {context.shape}, y: {y.shape}")
-                        
-                        # Call Flux model's forward method directly
-                        if hasattr(actual_model, 'model'):
-                            flux_model = actual_model.model
-                            logger.info(f"Calling Flux model forward: {type(flux_model)}")
+                        try:
+                            # Prepare inputs according to Flux model requirements
+                            x = torch.randn(1, 4, 64, 64, device=self.device)  # Flux expects 4-channel input
+                            timestep = torch.tensor([0.0], device=self.device)
+                            context = torch.randn(1, 77, 2048, device=self.device)  # CLIP context
+                            y = torch.randn(1, 512, device=self.device)  # CLIP pooled
                             
-                            result = flux_model.forward(x, timestep, context, y)
-                            logger.info(f"Flux forward result: {type(result)}, shape: {result.shape if result is not None else 'None'}")
+                            logger.info(f"Flux inputs - x: {x.shape}, timestep: {timestep.shape}, context: {context.shape}, y: {y.shape}")
                             
-                        else:
-                            logger.warning("No inner model found in ModelPatcher")
+                            # Try to call the model
+                            if hasattr(actual_model, 'forward'):
+                                result = actual_model.forward(x, timestep, context, y)
+                                logger.info(f"Flux forward result: {type(result)}, shape: {result.shape if result is not None else 'None'}")
+                            else:
+                                logger.warning(f"Model {type(actual_model)} has no forward method")
+                                
+                        except Exception as e:
+                            logger.warning(f"Flux forward pass failed: {e}")
+                            logger.info("Will use mock data as fallback")
+                    else:
+                        logger.warning("No suitable model found, will use mock data")
                             
-                    except Exception as e:
-                        logger.warning(f"Flux forward pass failed: {e}")
-                        logger.info("Will use mock data as fallback")
+                except Exception as e:
+                    logger.warning(f"ModelPatcher analysis failed: {e}")
+                    logger.info("Will use mock data as fallback")
                     
                     logger.info("Model forward pass completed successfully")
                     
