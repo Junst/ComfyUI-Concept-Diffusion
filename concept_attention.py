@@ -245,8 +245,52 @@ class ConceptAttentionProcessor:
                             # Try to call the model using apply_model (ComfyUI standard)
                             if hasattr(actual_model, 'apply_model'):
                                 logger.info("Using apply_model method for Flux")
-                                result = actual_model.apply_model(x, timestep, context, y)
-                                logger.info(f"Flux apply_model result: {type(result)}, shape: {result.shape if result is not None else 'None'}")
+                                
+                                # Flux apply_model expects different signature: (x, t, c_concat=None, c_crossattn=None, ...)
+                                # Let's try with minimal required parameters
+                                try:
+                                    result = actual_model.apply_model(x, timestep, c_crossattn=context)
+                                    logger.info(f"Flux apply_model result: {type(result)}, shape: {result.shape if result is not None else 'None'}")
+                                except Exception as e1:
+                                    logger.warning(f"apply_model with c_crossattn failed: {e1}")
+                                    try:
+                                        # Try with just x and timestep
+                                        result = actual_model.apply_model(x, timestep)
+                                        logger.info(f"Flux apply_model (minimal) result: {type(result)}, shape: {result.shape if result is not None else 'None'}")
+                                    except Exception as e2:
+                                        logger.warning(f"apply_model minimal failed: {e2}")
+                                        # Try to trigger hooks by accessing internal layers
+                                        logger.info("Trying to trigger hooks by accessing internal layers")
+                                        if hasattr(actual_model, 'diffusion_model'):
+                                            inner_model = actual_model.diffusion_model
+                                            logger.info(f"Inner diffusion model: {type(inner_model)}")
+                                            
+                                            # Try to manually trigger some computation in the model
+                                            try:
+                                                # Access the double_blocks to trigger hooks
+                                                if hasattr(inner_model, 'double_blocks'):
+                                                    blocks = inner_model.double_blocks
+                                                    logger.info(f"Found {len(blocks)} double blocks")
+                                                    
+                                                    # Try to run a simple forward pass on the first block
+                                                    if len(blocks) > 0:
+                                                        first_block = blocks[0]
+                                                        logger.info(f"First block type: {type(first_block)}")
+                                                        
+                                                        # Create minimal inputs for the block
+                                                        block_input = torch.randn(1, 256, 64, device=self.device)
+                                                        block_timestep = torch.randn(1, 256, device=self.device)
+                                                        
+                                                        # Try to run the block
+                                                        try:
+                                                            block_output = first_block(block_input, block_timestep)
+                                                            logger.info(f"Block output: {type(block_output)}, shape: {block_output.shape if hasattr(block_output, 'shape') else 'No shape'}")
+                                                        except Exception as block_error:
+                                                            logger.warning(f"Block execution failed: {block_error}")
+                                            
+                                            except Exception as inner_error:
+                                                logger.warning(f"Inner model access failed: {inner_error}")
+                                        
                             elif hasattr(actual_model, 'forward'):
                                 result = actual_model.forward(x, timestep, context, y)
                                 logger.info(f"Flux forward result: {type(result)}, shape: {result.shape if result is not None else 'None'}")
