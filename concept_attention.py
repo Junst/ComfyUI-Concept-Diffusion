@@ -33,16 +33,22 @@ class ConceptAttention:
         def hook_fn(module, input, output):
             # Store attention outputs for concept extraction
             module_name = getattr(module, '__class__', type(module)).__name__
+            logger.info(f"🔍 HOOK CALLED on {module_name} - checking if attention-related")
+            
             # Capture outputs from attention-related modules
             if any(keyword in module_name.lower() for keyword in ['attention', 'attn', 'query', 'key', 'value', 'proj']):
-                self.attention_outputs[module_name] = output
+                # Create a unique key for this hook
+                hook_key = f"{module_name}_{id(module)}"
+                self.attention_outputs[hook_key] = output
                 logger.info(f"🎯 HOOK TRIGGERED! Captured output from {module_name}")
+                logger.info(f"   Hook key: {hook_key}")
                 logger.info(f"   Shape: {output.shape}")
                 logger.info(f"   Type: {type(output)}")
                 logger.info(f"   Device: {output.device if hasattr(output, 'device') else 'N/A'}")
                 logger.info(f"   Total attention outputs captured: {len(self.attention_outputs)}")
+                logger.info(f"   Current attention_outputs keys: {list(self.attention_outputs.keys())}")
             else:
-                logger.debug(f"Hook called on {module_name} but not capturing (not attention-related)")
+                logger.info(f"Hook called on {module_name} but not capturing (not attention-related)")
         
         # Get the actual model from ModelPatcher
         actual_model = getattr(self.model, 'model', self.model)
@@ -95,11 +101,14 @@ class ConceptAttention:
                 for name, module in actual_model.named_modules():
                     if 'query_norm' in name.lower() and hasattr(module, '_forward_hooks'):
                         logger.info(f"Testing hook on {name}")
+                        logger.info(f"Module has {len(module._forward_hooks)} hooks registered")
                         try:
                             test_input = torch.randn(1, 128, device=self.device, dtype=model_dtype)
+                            logger.info(f"Calling module with input shape: {test_input.shape}")
                             with torch.no_grad():
-                                _ = module(test_input)
+                                result = module(test_input)
                             logger.info(f"Test successful - hook should have been triggered")
+                            logger.info(f"Module output shape: {result.shape if hasattr(result, 'shape') else 'No shape'}")
                             break
                         except Exception as test_error:
                             logger.warning(f"Hook test failed: {test_error}")
@@ -409,8 +418,9 @@ class ConceptAttentionProcessor:
                                                     if hasattr(layer, 'forward'):
                                                         # Create appropriate input based on layer type and expected shape
                                                         if 'qkv' in name.lower():
-                                                            # QKV layer expects different input
-                                                            layer_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
+                                                            # QKV layer expects input that matches the weight matrix dimensions
+                                                            # Weight matrix is (3072, 3072), so input should be (batch, seq_len, 3072)
+                                                            layer_input = torch.randn(1, 1024, 3072, device=self.device, dtype=model_dtype)
                                                         elif 'norm' in name.lower():
                                                             # Norm layer - check if it's query_norm, key_norm, etc.
                                                             if 'query_norm' in name.lower() or 'key_norm' in name.lower():
@@ -475,11 +485,13 @@ class ConceptAttentionProcessor:
                                                                 if 'query_norm' in name.lower() or 'key_norm' in name.lower():
                                                                     test_input = torch.randn(1, 128, device=self.device, dtype=model_dtype)
                                                                 elif 'qkv' in name.lower():
-                                                                    test_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
+                                                                    # QKV layer expects input that matches weight matrix (3072, 3072)
+                                                                    test_input = torch.randn(1, 1024, 3072, device=self.device, dtype=model_dtype)
                                                                 else:
                                                                     test_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
                                                                 
                                                                 # Call the module to trigger hooks
+                                                                logger.info(f"Calling {name} with input shape: {test_input.shape}")
                                                                 with torch.no_grad():
                                                                     output = module(test_input)
                                                                     logger.info(f"Successfully triggered hook on {name}, output shape: {output.shape if hasattr(output, 'shape') else 'No shape'}")
@@ -489,6 +501,15 @@ class ConceptAttentionProcessor:
                                                                 
                                         except Exception as ultimate_error:
                                             logger.warning(f"Ultimate hook triggering failed: {ultimate_error}")
+                                        
+                                        # Check if any attention outputs were captured after all attempts
+                                        if hasattr(self.concept_attention, 'attention_outputs') and self.concept_attention.attention_outputs:
+                                            logger.info(f"🎉 SUCCESS! Captured {len(self.concept_attention.attention_outputs)} attention outputs")
+                                            for key, output in self.concept_attention.attention_outputs.items():
+                                                logger.info(f"  - {key}: {output.shape}")
+                                        else:
+                                            logger.warning("❌ No attention outputs captured after all attempts")
+                                            logger.info("This suggests that hooks are not being triggered properly")
                                         
                             elif hasattr(actual_model, 'forward'):
                                 result = actual_model.forward(x, timestep, context, y)
