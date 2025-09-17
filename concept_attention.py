@@ -242,12 +242,17 @@ class ConceptAttentionProcessor:
                             
                             logger.info(f"Flux inputs - x: {x.shape}, timestep: {timestep.shape}, context: {context.shape}, y: {y.shape}")
                             
-                            # Try to call the model
-                            if hasattr(actual_model, 'forward'):
+                            # Try to call the model using apply_model (ComfyUI standard)
+                            if hasattr(actual_model, 'apply_model'):
+                                logger.info("Using apply_model method for Flux")
+                                result = actual_model.apply_model(x, timestep, context, y)
+                                logger.info(f"Flux apply_model result: {type(result)}, shape: {result.shape if result is not None else 'None'}")
+                            elif hasattr(actual_model, 'forward'):
                                 result = actual_model.forward(x, timestep, context, y)
                                 logger.info(f"Flux forward result: {type(result)}, shape: {result.shape if result is not None else 'None'}")
                             else:
-                                logger.warning(f"Model {type(actual_model)} has no forward method")
+                                logger.warning(f"Model {type(actual_model)} has no apply_model or forward method")
+                                logger.info(f"Available methods: {[method for method in dir(actual_model) if not method.startswith('_')]}")
                                 
                         except Exception as e:
                             logger.warning(f"Flux forward pass failed: {e}")
@@ -324,7 +329,7 @@ class ConceptAttentionProcessor:
         
         if not hasattr(self.concept_attention, 'attention_outputs') or not self.concept_attention.attention_outputs:
             logger.error("No attention outputs captured! This means hooks are not working properly.")
-            logger.error("Available attention_outputs:", getattr(self.concept_attention, 'attention_outputs', 'None'))
+            logger.error(f"Available attention_outputs: {getattr(self.concept_attention, 'attention_outputs', 'None')}")
             raise RuntimeError("Failed to capture attention outputs from the model. Hooks may not be working correctly.")
         
         try:

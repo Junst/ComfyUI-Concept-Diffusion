@@ -221,8 +221,8 @@ class ConceptSaliencyMapNode:
                 for y in range(body_y1, body_y2):
                     for x in range(body_x1, body_x2):
                         # Create gradient from center
-                        center_dist = torch.sqrt((x - 256)**2 + (y - 265)**2)
-                        mock_map[y, x] = max(0, 0.8 - center_dist / 100)
+                        center_dist = torch.sqrt(torch.tensor((x - 256)**2 + (y - 265)**2, dtype=torch.float32))
+                        mock_map[y, x] = max(0, 0.8 - center_dist.item() / 100)
                 
                 # Arms
                 # Left arm
