@@ -686,6 +686,8 @@ class ConceptAttentionVisualizerNode:
             "required": {
                 "concept_maps": ("CONCEPT_MAPS",),
                 "image": ("IMAGE",),
+            },
+            "optional": {
                 "alpha": ("FLOAT", {
                     "default": 0.5,
                     "min": 0.0,

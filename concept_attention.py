@@ -52,7 +52,7 @@ class ConceptAttention:
             logger.warning("Could not access named_modules, using fallback method")
             self._register_hooks_fallback(actual_model, hook_fn)
         
-        return attention_outputs
+        return self.attention_outputs
     
     def _register_hooks_fallback(self, model, hook_fn):
         """

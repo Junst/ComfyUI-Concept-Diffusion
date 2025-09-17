@@ -101,14 +101,13 @@
       "mode": 0,
       "inputs": [
         {"name": "concept_maps", "type": "CONCEPT_MAPS", "link": 4},
-        {"name": "image", "type": "IMAGE", "link": 1},
-        {"name": "alpha", "type": "FLOAT", "link": null}
+        {"name": "image", "type": "IMAGE", "link": 1}
       ],
       "outputs": [
         {"name": "visualized_image", "type": "IMAGE", "links": [11], "slot_index": 0}
       ],
       "properties": {"Node name for S&R": "ConceptAttentionVisualizerNode"},
-      "widgets_values": [0.5]
+      "widgets_values": []
     },
     {
       "id": 7,
