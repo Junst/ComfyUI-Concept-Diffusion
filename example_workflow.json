@@ -102,7 +102,7 @@
       "inputs": [
         {"name": "concept_maps", "type": "CONCEPT_MAPS", "link": 4},
         {"name": "image", "type": "IMAGE", "link": 1},
-        {"name": "overlay_alpha", "type": "FLOAT", "link": null}
+        {"name": "alpha", "type": "FLOAT", "link": null}
       ],
       "outputs": [
         {"name": "visualized_image", "type": "IMAGE", "links": [11], "slot_index": 0}
