@@ -181,10 +181,13 @@ class ConceptAttentionProcessor:
         Create mock saliency maps for testing purposes.
         In a real implementation, this would extract actual attention maps.
         """
+        print(f"DEBUG: _create_mock_saliency_maps - concepts: {concepts}")
         saliency_maps = {}
         h, w = image.shape[1], image.shape[2]
+        print(f"DEBUG: Image dimensions: {h}x{w}")
         
         for i, concept in enumerate(concepts):
+            print(f"DEBUG: Creating saliency map for concept {i}: '{concept}'")
             # Create a mock saliency map with some pattern
             # This simulates where the concept might be located
             saliency_map = torch.zeros((h, w))

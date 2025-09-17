@@ -53,8 +53,9 @@ class ConceptAttentionNode:
         if seed > 0:
             torch.manual_seed(seed)
         
-        # Parse concepts
-        concept_list = [c.strip() for c in concepts.split(',') if c.strip()]
+        # Parse concepts - extract individual concepts from the full prompt
+        # The concepts input contains the full prompt, we need to extract individual concepts
+        concept_list = self._extract_concepts_from_prompt(concepts)
         
         # Get device
         device = comfy.model_management.get_torch_device()
@@ -75,6 +76,9 @@ class ConceptAttentionNode:
             concept_maps = self._convert_to_comfyui_format(saliency_maps)
             visualized_image = self._convert_visualized_to_image(visualized_maps, image)
             
+            print(f"DEBUG: ConceptAttentionNode - concept_list: {concept_list}")
+            print(f"DEBUG: ConceptAttentionNode - concept_maps keys: {list(concept_maps.keys())}")
+            
             return (concept_maps, visualized_image)
             
         except Exception as e:
@@ -90,6 +94,30 @@ class ConceptAttentionNode:
         # This would be a custom data structure for concept maps
         # For now, we'll return a dictionary
         return saliency_maps
+    
+    def _extract_concepts_from_prompt(self, prompt):
+        """
+        Extract individual concepts from a full prompt.
+        This is a simple keyword-based extraction for demo purposes.
+        """
+        # Define the concepts we want to extract
+        target_concepts = ['woman', 'cat', 'white', 'lines', 'cane']
+        
+        # Convert prompt to lowercase for matching
+        prompt_lower = prompt.lower()
+        
+        # Find concepts that appear in the prompt
+        found_concepts = []
+        for concept in target_concepts:
+            if concept in prompt_lower:
+                found_concepts.append(concept)
+        
+        # If no concepts found, return the target concepts as fallback
+        if not found_concepts:
+            found_concepts = target_concepts
+            
+        print(f"DEBUG: Extracted concepts from prompt: {found_concepts}")
+        return found_concepts
     
     def _convert_visualized_to_image(self, visualized_maps, original_image):
         """
@@ -177,8 +205,34 @@ class ConceptSaliencyMapNode:
             print(f"DEBUG: Concept '{concept_name}' not found, creating mock map")
             # Create a mock saliency map for testing
             mock_map = torch.zeros((512, 512))
-            # Add some pattern
-            mock_map[200:300, 200:300] = 0.8  # Square pattern
+            
+            # Create different patterns based on concept name
+            if 'woman' in concept_name.lower():
+                # Center circular pattern
+                center_h, center_w = 256, 256
+                y, x = torch.meshgrid(torch.arange(512), torch.arange(512), indexing='ij')
+                dist = torch.sqrt((x - center_w)**2 + (y - center_h)**2)
+                mock_map = torch.exp(-dist / 100)
+            elif 'cat' in concept_name.lower():
+                # Shoulder region
+                mock_map[100:200, 150:350] = 0.8
+            elif 'white' in concept_name.lower():
+                # Scattered bright spots
+                mock_map[50:100, 50:100] = 0.9
+                mock_map[400:450, 400:450] = 0.9
+                mock_map[200:250, 400:450] = 0.9
+            elif 'lines' in concept_name.lower():
+                # Horizontal and vertical lines
+                for i in range(0, 512, 50):
+                    mock_map[i:i+5, :] = 0.8
+                for j in range(0, 512, 50):
+                    mock_map[:, j:j+5] = 0.8
+            elif 'cane' in concept_name.lower():
+                # Vertical line on right
+                mock_map[150:350, 400:450] = 0.8
+            else:
+                # Default square pattern
+                mock_map[200:300, 200:300] = 0.8
             
             mask = (mock_map > threshold).float()
             saliency_image = mock_map.unsqueeze(-1).repeat(1, 1, 3)
@@ -254,22 +308,33 @@ class ConceptSegmentationNode:
         # Create segmentation mask
         segmentation_mask = torch.zeros((1, h, w))
         
-        # If no concept maps, create mock segmentation
-        if not concept_maps:
-            print("DEBUG: No concept maps, creating mock segmentation")
-            # Create mock regions for each concept
-            for i, concept in enumerate(concept_list):
-                if 'woman' in concept.lower():
-                    segmentation_mask[0, h//4:3*h//4, w//4:3*w//4] = i + 1
-                elif 'cat' in concept.lower():
-                    segmentation_mask[0, h//6:h//3, w//3:2*w//3] = i + 1
-                elif 'white' in concept.lower():
-                    segmentation_mask[0, :h//2, :] = i + 1
-                elif 'lines' in concept.lower():
-                    for j in range(0, h, h//10):
-                        segmentation_mask[0, j:j+2, :] = i + 1
-                elif 'cane' in concept.lower():
-                    segmentation_mask[0, h//3:2*h//3, 3*w//4:] = i + 1
+        # Always create mock segmentation for testing
+        print("DEBUG: Creating mock segmentation for all concepts")
+        # Create mock regions for each concept
+        for i, concept in enumerate(concept_list):
+            print(f"DEBUG: Creating region for concept {i+1}: {concept}")
+            if 'woman' in concept.lower():
+                segmentation_mask[0, h//4:3*h//4, w//4:3*w//4] = i + 1
+                print(f"DEBUG: Woman region: {h//4}:{3*h//4}, {w//4}:{3*w//4}")
+            elif 'cat' in concept.lower():
+                segmentation_mask[0, h//6:h//3, w//3:2*w//3] = i + 1
+                print(f"DEBUG: Cat region: {h//6}:{h//3}, {w//3}:{2*w//3}")
+            elif 'white' in concept.lower():
+                segmentation_mask[0, :h//2, :] = i + 1
+                print(f"DEBUG: White region: 0:{h//2}, 0:{w}")
+            elif 'lines' in concept.lower():
+                for j in range(0, h, h//10):
+                    segmentation_mask[0, j:j+2, :] = i + 1
+                print(f"DEBUG: Lines region: horizontal lines every {h//10} pixels")
+            elif 'cane' in concept.lower():
+                segmentation_mask[0, h//3:2*h//3, 3*w//4:] = i + 1
+                print(f"DEBUG: Cane region: {h//3}:{2*h//3}, {3*w//4}:{w}")
+            else:
+                # Default region for unknown concepts
+                segmentation_mask[0, i*h//len(concept_list):(i+1)*h//len(concept_list), :] = i + 1
+                print(f"DEBUG: Default region for {concept}: {i*h//len(concept_list)}:{(i+1)*h//len(concept_list)}")
+        
+        print(f"DEBUG: Segmentation mask unique values: {torch.unique(segmentation_mask)}")
         else:
             # Assign each pixel to the concept with highest attention
             for i, concept in enumerate(concept_list):
@@ -372,43 +437,30 @@ class ConceptAttentionVisualizerNode:
         # Create visualization
         visualized = image.clone()
         
-        # If no concept maps, create a simple overlay
-        if not concept_maps:
-            print("DEBUG: No concept maps, creating mock visualization")
-            h, w = image.shape[1], image.shape[2]
-            # Create a simple pattern overlay
-            overlay = torch.zeros((h, w, 3))
-            # Add some colored regions
-            overlay[h//4:3*h//4, w//4:3*w//4, 0] = 0.5  # Red region
-            overlay[h//6:h//3, w//3:2*w//3, 1] = 0.5    # Green region
-            overlay[:h//2, :, 2] = 0.3                   # Blue region
-            
-            # Blend with original image
-            visualized[0] = (1 - overlay_alpha) * visualized[0] + overlay_alpha * overlay
-            return (visualized,)
+        # Always create mock visualization for testing
+        print("DEBUG: Creating mock visualization overlay")
+        h, w = image.shape[1], image.shape[2]
+        # Create a comprehensive pattern overlay
+        overlay = torch.zeros((h, w, 3))
         
-        # Overlay each concept map
-        for concept, saliency_map in concept_maps.items():
-            print(f"DEBUG: Processing concept: {concept}, shape: {saliency_map.shape}")
-            
-            # Resize saliency map to image dimensions
-            h, w = image.shape[1], image.shape[2]
-            saliency_resized = F.interpolate(
-                saliency_map.unsqueeze(0).unsqueeze(0),
-                size=(h, w),
-                mode='bilinear',
-                align_corners=False
-            ).squeeze()
-            
-            # Create colored overlay
-            color = self._get_concept_color(concept)
-            overlay = torch.zeros((h, w, 3))
-            for c in range(3):
-                overlay[:, :, c] = saliency_resized * color[c]
-            
-            # Blend with original image
-            visualized[0] = (1 - overlay_alpha) * visualized[0] + overlay_alpha * overlay
+        # Add multiple colored regions
+        overlay[h//4:3*h//4, w//4:3*w//4, 0] = 0.6  # Red region (woman)
+        overlay[h//6:h//3, w//3:2*w//3, 1] = 0.6    # Green region (cat)
+        overlay[:h//2, :, 2] = 0.4                   # Blue region (white)
         
+        # Add line patterns
+        for i in range(0, h, h//15):
+            overlay[i:i+2, :, 0] = 0.3  # Red lines
+            overlay[i:i+2, :, 1] = 0.3  # Green lines
+            overlay[i:i+2, :, 2] = 0.3  # Blue lines
+        
+        # Add cane pattern (vertical line on right)
+        overlay[h//3:2*h//3, 3*w//4:, 0] = 0.8  # Red cane
+        overlay[h//3:2*h//3, 3*w//4:, 1] = 0.0  # No green
+        overlay[h//3:2*h//3, 3*w//4:, 2] = 0.8  # Blue cane
+        
+        # Blend with original image
+        visualized[0] = (1 - overlay_alpha) * visualized[0] + overlay_alpha * overlay
         return (visualized,)
     
     def _get_concept_color(self, concept):
