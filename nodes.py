@@ -291,6 +291,10 @@ class ConceptSegmentationNode:
                 color = colors[concept]
                 mask = (segmentation_mask == i + 1).float()
                 
+                # Ensure mask is 2D for broadcasting
+                if len(mask.shape) == 3:
+                    mask = mask.squeeze(0)  # Remove batch dimension
+                
                 for c in range(3):
                     colored_image[0, :, :, c] += mask * color[c]
         
