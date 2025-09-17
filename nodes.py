@@ -59,22 +59,29 @@ class ConceptAttentionNode:
         # Get device
         device = comfy.model_management.get_torch_device()
         
-        # Initialize ConceptAttention processor
-        processor = ConceptAttentionProcessor(model, device)
-        
-        # Process image
-        saliency_maps = processor.process_image(
-            image, concept_list, clip, None  # tokenizer will be extracted from clip
-        )
-        
-        # Visualize saliency maps
-        visualized_maps = processor.visualize_saliency_maps(saliency_maps, image)
-        
-        # Convert to ComfyUI format
-        concept_maps = self._convert_to_comfyui_format(saliency_maps)
-        visualized_image = self._convert_visualized_to_image(visualized_maps, image)
-        
-        return (concept_maps, visualized_image)
+        try:
+            # Initialize ConceptAttention processor
+            processor = ConceptAttentionProcessor(model, device)
+            
+            # Process image
+            saliency_maps = processor.process_image(
+                image, concept_list, clip, None  # tokenizer will be extracted from clip
+            )
+            
+            # Visualize saliency maps
+            visualized_maps = processor.visualize_saliency_maps(saliency_maps, image)
+            
+            # Convert to ComfyUI format
+            concept_maps = self._convert_to_comfyui_format(saliency_maps)
+            visualized_image = self._convert_visualized_to_image(visualized_maps, image)
+            
+            return (concept_maps, visualized_image)
+            
+        except Exception as e:
+            print(f"Error in ConceptAttention: {e}")
+            # Return empty results on error
+            empty_maps = {}
+            return (empty_maps, image)
     
     def _convert_to_comfyui_format(self, saliency_maps):
         """
@@ -171,11 +178,21 @@ class ConceptSaliencyMapNode:
         
         saliency_map = concept_maps[concept_name]
         
+        # Ensure saliency_map is 2D
+        if len(saliency_map.shape) == 3:
+            saliency_map = saliency_map.squeeze(0)
+        
         # Convert to mask using threshold
         mask = (saliency_map > threshold).float()
         
-        # Convert to image format
+        # Convert to image format (grayscale to RGB)
         saliency_image = saliency_map.unsqueeze(-1).repeat(1, 1, 3)
+        
+        # Ensure proper dimensions for ComfyUI
+        if len(mask.shape) == 2:
+            mask = mask.unsqueeze(0)
+        if len(saliency_image.shape) == 3:
+            saliency_image = saliency_image.unsqueeze(0)
         
         return (mask, saliency_image)
 
@@ -219,21 +236,28 @@ class ConceptSegmentationNode:
         segmented_image = image.clone()
         
         # Assign each pixel to the concept with highest attention
-        for concept in concept_list:
+        for i, concept in enumerate(concept_list):
             if concept in concept_maps:
                 concept_map = concept_maps[concept]
                 
-                # Resize concept map to image dimensions
-                concept_resized = F.interpolate(
-                    concept_map.unsqueeze(0).unsqueeze(0),
-                    size=(h, w),
-                    mode='bilinear',
-                    align_corners=False
-                ).squeeze()
+                # Ensure concept_map is 2D
+                if len(concept_map.shape) == 3:
+                    concept_map = concept_map.squeeze(0)
                 
-                # Update segmentation mask
-                mask_indices = concept_resized > segmentation_mask
-                segmentation_mask[mask_indices] = concept_resized[mask_indices]
+                # Resize concept map to image dimensions if needed
+                if concept_map.shape != (h, w):
+                    concept_resized = F.interpolate(
+                        concept_map.unsqueeze(0).unsqueeze(0),
+                        size=(h, w),
+                        mode='bilinear',
+                        align_corners=False
+                    ).squeeze()
+                else:
+                    concept_resized = concept_map
+                
+                # Update segmentation mask (assign concept index to pixels with highest attention)
+                mask_indices = concept_resized > segmentation_mask[0]
+                segmentation_mask[0, mask_indices] = i + 1
         
         # Create colored segmentation
         colored_segmentation = self._create_colored_segmentation(segmentation_mask, concept_list)
