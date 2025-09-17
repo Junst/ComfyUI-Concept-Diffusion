@@ -1,0 +1,14 @@
+[project]
+name = "comfyui-concept-diffusion"
+description = "ConceptAttention: Diffusion Transformers Learn Highly Interpretable Features for ComfyUI"
+version = "1.0.0"
+license = { file = "LICENSE" }
+dependencies = ["torch", "torchvision", "transformers", "diffusers", "numpy", "PIL"]
+
+[project.urls]
+Repository = "https://github.com/your-username/ComfyUI-Concept-Diffusion"
+
+[tool.comfy]
+PublisherId = "concept-diffusion"
+DisplayName = "ComfyUI-Concept-Diffusion"
+Icon = ""
