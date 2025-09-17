@@ -49,11 +49,15 @@ class ConceptAttention:
         
         # Register hooks on attention layers
         try:
+            hook_count = 0
             for name, module in actual_model.named_modules():
                 if 'attention' in name.lower() or 'attn' in name.lower():
                     hook = module.register_forward_hook(hook_fn)
                     self.attention_hooks.append(hook)
+                    hook_count += 1
                     logger.info(f"Registered hook on {name}")
+            
+            logger.info(f"Successfully registered {hook_count} hooks on attention layers")
         except AttributeError:
             # Fallback: try to find attention modules in the model structure
             logger.warning("Could not access named_modules, using fallback method")
@@ -230,11 +234,19 @@ class ConceptAttentionProcessor:
                     if actual_model is not None:
                         logger.info(f"Using actual model: {type(actual_model)}")
                         
+                        # Check model device and move to correct device if needed
+                        model_device = next(actual_model.parameters()).device
+                        logger.info(f"Model device: {model_device}, Target device: {self.device}")
+                        
+                        if model_device != self.device:
+                            logger.info(f"Moving model from {model_device} to {self.device}")
+                            actual_model = actual_model.to(self.device)
+                        
                         # For Flux models, we need the correct input format
                         logger.info("Attempting Flux model forward pass with correct input format")
                         
                         try:
-                            # Prepare inputs according to Flux model requirements - ensure all on same device
+                            # Prepare inputs according to Flux model requirements - ensure all on same device as model
                             x = torch.randn(1, 4, 64, 64, device=self.device, dtype=torch.float32)  # Flux expects 4-channel input
                             timestep = torch.tensor([0.0], device=self.device, dtype=torch.float32)
                             context = torch.randn(1, 77, 2048, device=self.device, dtype=torch.float32)  # CLIP context
@@ -312,14 +324,37 @@ class ConceptAttentionProcessor:
                                             logger.info(f"Found {len(attention_layers)} potential attention layers")
                                             
                                             # Try to trigger hooks by running a simple operation on attention layers
-                                            for name, layer in attention_layers[:3]:  # Try first 3 layers
+                                            for name, layer in attention_layers[:5]:  # Try first 5 layers
                                                 try:
                                                     logger.info(f"Trying to trigger hook on layer: {name}")
-                                                    # Create a simple input for the layer
-                                                    if hasattr(layer, 'weight'):
-                                                        # Just access the weight to potentially trigger computation
-                                                        _ = layer.weight
-                                                        logger.info(f"Successfully accessed weight of {name}")
+                                                    
+                                                    # Try to run a forward pass on the layer if possible
+                                                    if hasattr(layer, 'forward'):
+                                                        # Create appropriate input based on layer type
+                                                        if 'qkv' in name.lower():
+                                                            # QKV layer expects different input
+                                                            layer_input = torch.randn(1, 1024, 256, device=self.device, dtype=torch.float32)
+                                                        elif 'norm' in name.lower():
+                                                            # Norm layer
+                                                            layer_input = torch.randn(1, 1024, 256, device=self.device, dtype=torch.float32)
+                                                        else:
+                                                            # Default attention layer
+                                                            layer_input = torch.randn(1, 1024, 256, device=self.device, dtype=torch.float32)
+                                                        
+                                                        try:
+                                                            layer_output = layer(layer_input)
+                                                            logger.info(f"Successfully ran forward pass on {name}, output shape: {layer_output.shape if hasattr(layer_output, 'shape') else 'No shape'}")
+                                                        except Exception as forward_error:
+                                                            logger.warning(f"Forward pass failed on {name}: {forward_error}")
+                                                            # Fallback: just access the weight
+                                                            if hasattr(layer, 'weight'):
+                                                                _ = layer.weight
+                                                                logger.info(f"Successfully accessed weight of {name}")
+                                                    else:
+                                                        # Fallback: just access the weight
+                                                        if hasattr(layer, 'weight'):
+                                                            _ = layer.weight
+                                                            logger.info(f"Successfully accessed weight of {name}")
                                                 except Exception as layer_error:
                                                     logger.warning(f"Failed to access layer {name}: {layer_error}")
                                                     
@@ -348,6 +383,14 @@ class ConceptAttentionProcessor:
                 except Exception as e:
                     logger.warning(f"Model forward pass failed: {e}")
                     logger.info("Will use mock data as fallback")
+            
+            # Check if any attention outputs were captured
+            if hasattr(self.concept_attention, 'attention_outputs') and self.concept_attention.attention_outputs:
+                logger.info(f"Successfully captured {len(self.concept_attention.attention_outputs)} attention outputs")
+                for name, output in self.concept_attention.attention_outputs.items():
+                    logger.info(f"  - {name}: {output.shape}")
+            else:
+                logger.warning("No attention outputs were captured! Hooks may not have been triggered.")
             
             # Process attention outputs to create concept maps
             concept_maps = self._create_concept_maps_from_attention(concept_embeddings, image.shape)
