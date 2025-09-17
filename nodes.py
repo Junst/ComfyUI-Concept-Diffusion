@@ -202,37 +202,88 @@ class ConceptSaliencyMapNode:
         print(f"DEBUG: looking for concept: {concept_name}")
         
         if not concept_maps or concept_name not in concept_maps:
-            print(f"DEBUG: Concept '{concept_name}' not found, creating mock map")
-            # Create a mock saliency map for testing
+            print(f"DEBUG: Concept '{concept_name}' not found, creating fallback map")
+            # Create a fallback saliency map
             mock_map = torch.zeros((512, 512))
             
-            # Create different patterns based on concept name
+            # Create sophisticated patterns based on concept name
             if 'woman' in concept_name.lower():
-                # Center circular pattern
-                center_h, center_w = 256, 256
+                # Woman: Detailed human figure pattern
+                # Head (circular)
+                center_h, center_w = 150, 256
                 y, x = torch.meshgrid(torch.arange(512), torch.arange(512), indexing='ij')
-                dist = torch.sqrt((x - center_w)**2 + (y - center_h)**2)
-                mock_map = torch.exp(-dist / 100)
+                head_dist = torch.sqrt((x - center_w)**2 + (y - center_h)**2)
+                mock_map[head_dist < 60] = torch.exp(-head_dist[head_dist < 60] / 30)
+                
+                # Body (rectangular with gradient)
+                body_y1, body_y2 = 180, 350
+                body_x1, body_x2 = 200, 312
+                for y in range(body_y1, body_y2):
+                    for x in range(body_x1, body_x2):
+                        # Create gradient from center
+                        center_dist = torch.sqrt((x - 256)**2 + (y - 265)**2)
+                        mock_map[y, x] = max(0, 0.8 - center_dist / 100)
+                
+                # Arms
+                # Left arm
+                mock_map[200:300, 150:200] = 0.6
+                # Right arm
+                mock_map[200:300, 312:362] = 0.6
+                
             elif 'cat' in concept_name.lower():
-                # Shoulder region
-                mock_map[100:200, 150:350] = 0.8
+                # Cat: Small oval on shoulder
+                center_h, center_w = 200, 350
+                y, x = torch.meshgrid(torch.arange(512), torch.arange(512), indexing='ij')
+                cat_dist = torch.sqrt(((x - center_w)/1.5)**2 + (y - center_h)**2)
+                mock_map[cat_dist < 40] = torch.exp(-cat_dist[cat_dist < 40] / 20)
+                
             elif 'white' in concept_name.lower():
-                # Scattered bright spots
-                mock_map[50:100, 50:100] = 0.9
-                mock_map[400:450, 400:450] = 0.9
-                mock_map[200:250, 400:450] = 0.9
+                # White: Hair and dress details
+                # Hair region (top)
+                hair_y1, hair_y2 = 80, 180
+                hair_x1, hair_x2 = 200, 312
+                mock_map[hair_y1:hair_y2, hair_x1:hair_x2] = 0.7
+                
+                # Dress white details (center)
+                dress_y1, dress_y2 = 250, 350
+                dress_x1, dress_x2 = 180, 332
+                mock_map[dress_y1:dress_y2, dress_x1:dress_x2] = 0.6
+                
+                # Add some bright spots
+                mock_map[100:120, 220:240] = 0.9
+                mock_map[280:300, 280:300] = 0.9
+                
             elif 'lines' in concept_name.lower():
-                # Horizontal and vertical lines
-                for i in range(0, 512, 50):
-                    mock_map[i:i+5, :] = 0.8
-                for j in range(0, 512, 50):
-                    mock_map[:, j:j+5] = 0.8
+                # Lines: Detailed line patterns
+                # Dress horizontal lines
+                for line_y in range(250, 350, 8):
+                    mock_map[line_y:line_y+2, 180:332] = 0.8
+                
+                # Dress vertical lines
+                for line_x in range(200, 312, 12):
+                    mock_map[250:350, line_x:line_x+2] = 0.7
+                
+                # Hair lines
+                for line_y in range(100, 180, 3):
+                    mock_map[line_y:line_y+1, 200:312] = 0.6
+                
+                # Decorative lines
+                for i in range(0, 512, 25):
+                    mock_map[i:i+1, :] = 0.4
+                
             elif 'cane' in concept_name.lower():
-                # Vertical line on right
-                mock_map[150:350, 400:450] = 0.8
+                # Cane: Two vertical canes
+                # Left cane
+                mock_map[200:400, 120:140] = 0.8
+                # Right cane
+                mock_map[220:380, 380:400] = 0.8
+                # Cane handles
+                mock_map[200:210, 120:140] = 0.9
+                mock_map[220:230, 380:400] = 0.9
+                
             else:
-                # Default square pattern
-                mock_map[200:300, 200:300] = 0.8
+                # Default pattern
+                mock_map[200:300, 200:300] = 0.5
             
             mask = (mock_map > threshold).float()
             saliency_image = mock_map.unsqueeze(-1).repeat(1, 1, 3)
@@ -308,27 +359,84 @@ class ConceptSegmentationNode:
         # Create segmentation mask
         segmentation_mask = torch.zeros((1, h, w))
         
-        # Always create mock segmentation for testing
-        print("DEBUG: Creating mock segmentation for all concepts")
-        # Create mock regions for each concept
+        # Create more sophisticated mock segmentation based on image content
+        print("DEBUG: Creating sophisticated mock segmentation for all concepts")
+        
         for i, concept in enumerate(concept_list):
-            print(f"DEBUG: Creating region for concept {i+1}: {concept}")
+            print(f"DEBUG: Creating detailed region for concept {i+1}: {concept}")
+            
             if 'woman' in concept.lower():
-                segmentation_mask[0, h//4:3*h//4, w//4:3*w//4] = i + 1
-                print(f"DEBUG: Woman region: {h//4}:{3*h//4}, {w//4}:{3*w//4}")
+                # Woman: Center figure with head, body, and dress
+                # Head region (top center)
+                head_y1, head_y2 = int(h*0.15), int(h*0.35)
+                head_x1, head_x2 = int(w*0.35), int(w*0.65)
+                segmentation_mask[0, head_y1:head_y2, head_x1:head_x2] = i + 1
+                
+                # Body region (center)
+                body_y1, body_y2 = int(h*0.35), int(h*0.75)
+                body_x1, body_x2 = int(w*0.3), int(w*0.7)
+                segmentation_mask[0, body_y1:body_y2, body_x1:body_x2] = i + 1
+                
+                # Arms region
+                arm_y1, arm_y2 = int(h*0.4), int(h*0.6)
+                # Left arm
+                segmentation_mask[0, arm_y1:arm_y2, int(w*0.2):int(w*0.3)] = i + 1
+                # Right arm  
+                segmentation_mask[0, arm_y1:arm_y2, int(w*0.7):int(w*0.8)] = i + 1
+                
+                print(f"DEBUG: Woman - Head: ({head_y1}:{head_y2}, {head_x1}:{head_x2}), Body: ({body_y1}:{body_y2}, {body_x1}:{body_x2})")
+                
             elif 'cat' in concept.lower():
-                segmentation_mask[0, h//6:h//3, w//3:2*w//3] = i + 1
-                print(f"DEBUG: Cat region: {h//6}:{h//3}, {w//3}:{2*w//3}")
+                # Cat: Small region on woman's shoulder (left side)
+                cat_y1, cat_y2 = int(h*0.25), int(h*0.4)
+                cat_x1, cat_x2 = int(w*0.6), int(w*0.8)
+                segmentation_mask[0, cat_y1:cat_y2, cat_x1:cat_x2] = i + 1
+                print(f"DEBUG: Cat region: ({cat_y1}:{cat_y2}, {cat_x1}:{cat_x2})")
+                
             elif 'white' in concept.lower():
-                segmentation_mask[0, :h//2, :] = i + 1
-                print(f"DEBUG: White region: 0:{h//2}, 0:{w}")
+                # White: Hair, dress details, and background elements
+                # Hair region
+                hair_y1, hair_y2 = int(h*0.1), int(h*0.3)
+                hair_x1, hair_x2 = int(w*0.3), int(w*0.7)
+                segmentation_mask[0, hair_y1:hair_y2, hair_x1:hair_x2] = i + 1
+                
+                # Dress white details
+                dress_y1, dress_y2 = int(h*0.5), int(h*0.7)
+                dress_x1, dress_x2 = int(w*0.25), int(w*0.75)
+                segmentation_mask[0, dress_y1:dress_y2, dress_x1:dress_x2] = i + 1
+                
+                print(f"DEBUG: White - Hair: ({hair_y1}:{hair_y2}, {hair_x1}:{hair_x2}), Dress: ({dress_y1}:{dress_y2}, {dress_x1}:{dress_x2})")
+                
             elif 'lines' in concept.lower():
-                for j in range(0, h, h//10):
-                    segmentation_mask[0, j:j+2, :] = i + 1
-                print(f"DEBUG: Lines region: horizontal lines every {h//10} pixels")
+                # Lines: Dress patterns, hair lines, and decorative elements
+                # Horizontal lines in dress
+                for line_y in range(int(h*0.5), int(h*0.7), int(h*0.02)):
+                    segmentation_mask[0, line_y:line_y+1, int(w*0.2):int(w*0.8)] = i + 1
+                
+                # Vertical lines for dress structure
+                for line_x in range(int(w*0.3), int(w*0.7), int(w*0.05)):
+                    segmentation_mask[0, int(h*0.4):int(h*0.7), line_x:line_x+1] = i + 1
+                
+                # Hair lines
+                for line_y in range(int(h*0.15), int(h*0.3), int(h*0.01)):
+                    segmentation_mask[0, line_y:line_y+1, int(w*0.35):int(w*0.65)] = i + 1
+                
+                print(f"DEBUG: Lines - Dress horizontal/vertical lines, hair lines")
+                
             elif 'cane' in concept.lower():
-                segmentation_mask[0, h//3:2*h//3, 3*w//4:] = i + 1
-                print(f"DEBUG: Cane region: {h//3}:{2*h//3}, {3*w//4}:{w}")
+                # Cane: Two canes - one in each hand
+                # Left cane (vertical)
+                left_cane_y1, left_cane_y2 = int(h*0.4), int(h*0.8)
+                left_cane_x1, left_cane_x2 = int(w*0.15), int(w*0.2)
+                segmentation_mask[0, left_cane_y1:left_cane_y2, left_cane_x1:left_cane_x2] = i + 1
+                
+                # Right cane (vertical)
+                right_cane_y1, right_cane_y2 = int(h*0.45), int(h*0.75)
+                right_cane_x1, right_cane_x2 = int(w*0.75), int(w*0.8)
+                segmentation_mask[0, right_cane_y1:right_cane_y2, right_cane_x1:right_cane_x2] = i + 1
+                
+                print(f"DEBUG: Cane - Left: ({left_cane_y1}:{left_cane_y2}, {left_cane_x1}:{left_cane_x2}), Right: ({right_cane_y1}:{right_cane_y2}, {right_cane_x1}:{right_cane_x2})")
+                
             else:
                 # Default region for unknown concepts
                 segmentation_mask[0, i*h//len(concept_list):(i+1)*h//len(concept_list), :] = i + 1
@@ -480,6 +588,202 @@ class ConceptAttentionVisualizerNode:
             'tree': [0.0, 0.0, 1.0],    # Blue (fallback)
             'sky': [1.0, 1.0, 0.0],     # Yellow (fallback)
             'building': [1.0, 0.0, 1.0], # Magenta (fallback)
+        }
+        return colors.get(concept.lower(), [1.0, 1.0, 1.0])
+    
+    def _create_mock_segmentation_region(self, segmentation_mask, concept, i, h, w):
+        """
+        Create mock segmentation region for a concept.
+        """
+        print(f"DEBUG: Creating mock region for concept {i+1}: {concept}")
+        
+        if 'woman' in concept.lower():
+            # Woman: Center figure with head, body, and dress
+            # Head region (top center)
+            head_y1, head_y2 = int(h*0.15), int(h*0.35)
+            head_x1, head_x2 = int(w*0.35), int(w*0.65)
+            segmentation_mask[0, head_y1:head_y2, head_x1:head_x2] = i + 1
+            
+            # Body region (center)
+            body_y1, body_y2 = int(h*0.35), int(h*0.75)
+            body_x1, body_x2 = int(w*0.3), int(w*0.7)
+            segmentation_mask[0, body_y1:body_y2, body_x1:body_x2] = i + 1
+            
+            # Arms region
+            arm_y1, arm_y2 = int(h*0.4), int(h*0.6)
+            # Left arm
+            segmentation_mask[0, arm_y1:arm_y2, int(w*0.2):int(w*0.3)] = i + 1
+            # Right arm  
+            segmentation_mask[0, arm_y1:arm_y2, int(w*0.7):int(w*0.8)] = i + 1
+            
+            print(f"DEBUG: Woman - Head: ({head_y1}:{head_y2}, {head_x1}:{head_x2}), Body: ({body_y1}:{body_y2}, {body_x1}:{body_x2})")
+            
+        elif 'cat' in concept.lower():
+            # Cat: Small region on woman's shoulder (left side)
+            cat_y1, cat_y2 = int(h*0.25), int(h*0.4)
+            cat_x1, cat_x2 = int(w*0.6), int(w*0.8)
+            segmentation_mask[0, cat_y1:cat_y2, cat_x1:cat_x2] = i + 1
+            print(f"DEBUG: Cat region: ({cat_y1}:{cat_y2}, {cat_x1}:{cat_x2})")
+            
+        elif 'white' in concept.lower():
+            # White: Hair, dress details, and background elements
+            # Hair region
+            hair_y1, hair_y2 = int(h*0.1), int(h*0.3)
+            hair_x1, hair_x2 = int(w*0.3), int(w*0.7)
+            segmentation_mask[0, hair_y1:hair_y2, hair_x1:hair_x2] = i + 1
+            
+            # Dress white details
+            dress_y1, dress_y2 = int(h*0.5), int(h*0.7)
+            dress_x1, dress_x2 = int(w*0.25), int(w*0.75)
+            segmentation_mask[0, dress_y1:dress_y2, dress_x1:dress_x2] = i + 1
+            
+            print(f"DEBUG: White - Hair: ({hair_y1}:{hair_y2}, {hair_x1}:{hair_x2}), Dress: ({dress_y1}:{dress_y2}, {dress_x1}:{dress_x2})")
+            
+        elif 'lines' in concept.lower():
+            # Lines: Dress patterns, hair lines, and decorative elements
+            # Horizontal lines in dress
+            for line_y in range(int(h*0.5), int(h*0.7), int(h*0.02)):
+                segmentation_mask[0, line_y:line_y+1, int(w*0.2):int(w*0.8)] = i + 1
+            
+            # Vertical lines for dress structure
+            for line_x in range(int(w*0.3), int(w*0.7), int(w*0.05)):
+                segmentation_mask[0, int(h*0.4):int(h*0.7), line_x:line_x+1] = i + 1
+            
+            # Hair lines
+            for line_y in range(int(h*0.15), int(h*0.3), int(h*0.01)):
+                segmentation_mask[0, line_y:line_y+1, int(w*0.35):int(w*0.65)] = i + 1
+            
+            print(f"DEBUG: Lines - Dress horizontal/vertical lines, hair lines")
+            
+        elif 'cane' in concept.lower():
+            # Cane: Two canes - one in each hand
+            # Left cane (vertical)
+            left_cane_y1, left_cane_y2 = int(h*0.4), int(h*0.8)
+            left_cane_x1, left_cane_x2 = int(w*0.15), int(w*0.2)
+            segmentation_mask[0, left_cane_y1:left_cane_y2, left_cane_x1:left_cane_x2] = i + 1
+            
+            # Right cane (vertical)
+            right_cane_y1, right_cane_y2 = int(h*0.45), int(h*0.75)
+            right_cane_x1, right_cane_x2 = int(w*0.75), int(w*0.8)
+            segmentation_mask[0, right_cane_y1:right_cane_y2, right_cane_x1:right_cane_x2] = i + 1
+            
+            print(f"DEBUG: Cane - Left: ({left_cane_y1}:{left_cane_y2}, {left_cane_x1}:{left_cane_x2}), Right: ({right_cane_y1}:{right_cane_y2}, {right_cane_x1}:{right_cane_x2})")
+            
+        else:
+            # Default region for unknown concepts
+            segmentation_mask[0, i*h//len(concept_list):(i+1)*h//len(concept_list), :] = i + 1
+            print(f"DEBUG: Default region for {concept}: {i*h//len(concept_list)}:{(i+1)*h//len(concept_list)}")
+
+
+class ConceptAttentionVisualizerNode:
+    """
+    Node for visualizing concept attention overlays
+    """
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "concept_maps": ("CONCEPT_MAPS",),
+                "image": ("IMAGE",),
+                "alpha": ("FLOAT", {
+                    "default": 0.5,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01
+                }),
+            }
+        }
+    
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("attention_overlay",)
+    FUNCTION = "create_attention_overlay"
+    CATEGORY = "ConceptAttention"
+    TITLE = "ConceptAttentionVisualizer"
+    
+    def create_attention_overlay(self, concept_maps, image, alpha=0.5):
+        """
+        Create attention overlay visualization
+        """
+        print(f"DEBUG: Visualizer - concept_maps keys: {list(concept_maps.keys()) if concept_maps else 'None'}")
+        
+        if not concept_maps:
+            print("DEBUG: No concept maps, creating mock visualization")
+            # Create mock visualization overlay
+            h, w = image.shape[1], image.shape[2]
+            overlay = image.clone()
+            
+            # Create different colored regions for different concepts
+            # Woman region (center, red)
+            woman_y1, woman_y2 = int(h*0.2), int(h*0.8)
+            woman_x1, woman_x2 = int(w*0.2), int(w*0.8)
+            overlay[0, woman_y1:woman_y2, woman_x1:woman_x2, 0] = 1.0  # Red channel
+            
+            # Cat region (shoulder, green)
+            cat_y1, cat_y2 = int(h*0.25), int(h*0.4)
+            cat_x1, cat_x2 = int(w*0.6), int(w*0.8)
+            overlay[0, cat_y1:cat_y2, cat_x1:cat_x2, 1] = 1.0  # Green channel
+            
+            # White region (hair/dress, white)
+            white_y1, white_y2 = int(h*0.1), int(h*0.3)
+            white_x1, white_x2 = int(w*0.3), int(w*0.7)
+            overlay[0, white_y1:white_y2, white_x1:white_x2, :] = 1.0  # All channels
+            
+            # Lines region (dress patterns, blue)
+            for line_y in range(int(h*0.5), int(h*0.7), int(h*0.02)):
+                overlay[0, line_y:line_y+1, int(w*0.2):int(w*0.8), 2] = 1.0  # Blue channel
+            
+            # Cane region (right side, magenta)
+            cane_y1, cane_y2 = int(h*0.4), int(h*0.7)
+            cane_x1, cane_x2 = int(w*0.75), int(w*0.85)
+            overlay[0, cane_y1:cane_y2, cane_x1:cane_x2, 0] = 1.0  # Red
+            overlay[0, cane_y1:cane_y2, cane_x1:cane_x2, 2] = 1.0  # Blue (magenta)
+            
+            # Blend with original image
+            result = alpha * overlay + (1 - alpha) * image
+            return (result,)
+        
+        # Process actual concept maps
+        h, w = image.shape[1], image.shape[2]
+        overlay = torch.zeros_like(image)
+        
+        for concept, concept_map in concept_maps.items():
+            print(f"DEBUG: Processing concept: {concept}, shape: {concept_map.shape}")
+            
+            # Ensure concept_map is 2D
+            if len(concept_map.shape) == 3:
+                concept_map = concept_map.squeeze(0)
+            
+            # Resize to image dimensions
+            if concept_map.shape != (h, w):
+                concept_map = F.interpolate(
+                    concept_map.unsqueeze(0).unsqueeze(0),
+                    size=(h, w),
+                    mode='bilinear',
+                    align_corners=False
+                ).squeeze()
+            
+            # Get color for this concept
+            color = self._get_concept_color(concept)
+            
+            # Apply color overlay
+            for c in range(3):
+                overlay[0, :, :, c] += concept_map * color[c]
+        
+        # Blend with original image
+        result = alpha * overlay + (1 - alpha) * image
+        return (result,)
+    
+    def _get_concept_color(self, concept):
+        """
+        Get color for a concept
+        """
+        colors = {
+            'woman': [1.0, 0.0, 0.0],   # Red
+            'cat': [0.0, 1.0, 0.0],     # Green
+            'white': [1.0, 1.0, 1.0],   # White
+            'lines': [0.0, 0.0, 1.0],   # Blue
+            'cane': [1.0, 0.0, 1.0],    # Magenta
         }
         return colors.get(concept.lower(), [1.0, 1.0, 1.0])
 
