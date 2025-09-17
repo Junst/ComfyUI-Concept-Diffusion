@@ -1,6 +1,6 @@
 {
   "last_node_id": 10,
-  "last_link_id": 20,
+  "last_link_id": 11,
   "nodes": [
     {
       "id": 1,
@@ -66,7 +66,7 @@
         {"name": "threshold", "type": "FLOAT", "link": null}
       ],
       "outputs": [
-        {"name": "mask", "type": "MASK", "links": [7], "slot_index": 0},
+        {"name": "mask", "type": "MASK", "links": null, "slot_index": 0},
         {"name": "saliency_image", "type": "IMAGE", "links": [8], "slot_index": 1}
       ],
       "properties": {"Node name for S&R": "ConceptSaliencyMapNode"},
@@ -86,7 +86,7 @@
         {"name": "concepts", "type": "STRING", "link": null}
       ],
       "outputs": [
-        {"name": "segmentation_mask", "type": "MASK", "links": [9], "slot_index": 0},
+        {"name": "segmentation_mask", "type": "MASK", "links": null, "slot_index": 0},
         {"name": "segmented_image", "type": "IMAGE", "links": [10], "slot_index": 1}
       ],
       "properties": {"Node name for S&R": "ConceptSegmentationNode"},
@@ -175,9 +175,7 @@
     [4, 3, 0, 4, 0, "CONCEPT_MAPS"],
     [5, 3, 0, 5, 0, "CONCEPT_MAPS"],
     [6, 3, 1, 7, 0, "IMAGE"],
-    [7, 4, 0, 8, 0, "MASK"],
     [8, 4, 1, 8, 0, "IMAGE"],
-    [9, 5, 0, 9, 0, "MASK"],
     [10, 5, 1, 9, 0, "IMAGE"],
     [11, 6, 0, 10, 0, "IMAGE"]
   ],
