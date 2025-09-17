@@ -18,7 +18,7 @@ This node allows you to generate high-quality saliency maps that precisely locat
 
 1. Clone this repository to your ComfyUI custom_nodes folder:
    ```bash
-   git clone https://github.com/your-username/ComfyUI-Concept-Diffusion.git
+   git clone https://github.com/Junst/ComfyUI-Concept-Diffusion.git
    cd ComfyUI-Concept-Diffusion
    ```
 
