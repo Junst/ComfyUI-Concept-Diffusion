@@ -195,49 +195,40 @@ class ConceptAttentionProcessor:
                     actual_model = getattr(self.model, 'model', self.model)
                     logger.info(f"Using actual model: {type(actual_model)}")
                     
-                    # For Flux models, we need to be more careful with input format
-                    # Since we just want to trigger hooks, let's try minimal approaches
-                    logger.info("Attempting to trigger hooks with minimal model execution")
+                    # For Flux models, we need the correct input format based on ComfyUI reference
+                    # Flux forward signature: (x, timestep, context, y=None, guidance=None, ...)
+                    logger.info("Attempting Flux model forward pass with correct input format")
                     
-                    # Try to find and call a simple method that will trigger the hooks
-                    # without requiring complex input formatting
-                    hook_triggered = False
-                    
-                    # Method 1: Try to access internal layers directly
                     try:
+                        # Prepare inputs according to Flux model requirements
+                        # x: input tensor (noise)
+                        x = torch.randn(1, 4, 64, 64, device=self.device)  # Flux expects 4-channel input
+                        
+                        # timestep: timestep tensor
+                        timestep = torch.tensor([0.0], device=self.device)
+                        
+                        # context: text context (CLIP embeddings)
+                        context = torch.randn(1, 77, 2048, device=self.device)  # CLIP context
+                        
+                        # y: CLIP pooled output
+                        y = torch.randn(1, 512, device=self.device)  # CLIP pooled
+                        
+                        logger.info(f"Flux inputs - x: {x.shape}, timestep: {timestep.shape}, context: {context.shape}, y: {y.shape}")
+                        
+                        # Call Flux model's forward method directly
                         if hasattr(actual_model, 'model'):
-                            inner_model = actual_model.model
-                            logger.info(f"Inner model type: {type(inner_model)}")
+                            flux_model = actual_model.model
+                            logger.info(f"Calling Flux model forward: {type(flux_model)}")
                             
-                            # Try to trigger some computation in the model
-                            if hasattr(inner_model, 'double_blocks'):
-                                logger.info("Found double_blocks, attempting to trigger computation")
-                                # Just access the blocks to potentially trigger some computation
-                                blocks = inner_model.double_blocks
-                                logger.info(f"Number of blocks: {len(blocks)}")
-                                hook_triggered = True
+                            result = flux_model.forward(x, timestep, context, y)
+                            logger.info(f"Flux forward result: {type(result)}, shape: {result.shape if result is not None else 'None'}")
+                            
+                        else:
+                            logger.warning("No inner model found in ModelPatcher")
+                            
                     except Exception as e:
-                        logger.warning(f"Direct layer access failed: {e}")
-                    
-                    # Method 2: Try minimal apply_model call
-                    if not hook_triggered:
-                        try:
-                            logger.info("Trying minimal apply_model call")
-                            # Use very simple inputs
-                            simple_noise = torch.randn(1, 4, 64, 64, device=self.device)  # Smaller input
-                            simple_timestep = torch.tensor([0], device=self.device)
-                            
-                            result = actual_model.apply_model(simple_noise, simple_timestep)
-                            logger.info(f"Minimal apply_model result: {type(result)}")
-                            hook_triggered = True
-                            
-                        except Exception as e:
-                            logger.warning(f"Minimal apply_model failed: {e}")
-                    
-                    if hook_triggered:
-                        logger.info("Successfully triggered hooks")
-                    else:
-                        logger.warning("Could not trigger hooks, will rely on mock data")
+                        logger.warning(f"Flux forward pass failed: {e}")
+                        logger.info("Will use mock data as fallback")
                     
                     logger.info("Model forward pass completed successfully")
                     
