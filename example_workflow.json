@@ -11,7 +11,7 @@
       "order": 0,
       "mode": 0,
       "outputs": [
-        {"name": "IMAGE", "type": "IMAGE", "links": [1], "slot_index": 0}
+        {"name": "IMAGE", "type": "IMAGE", "links": [1, 7], "slot_index": 0}
       ],
       "properties": {"Node name for S&R": "LoadImage"},
       "widgets_values": ["example_image.png", "image"]
