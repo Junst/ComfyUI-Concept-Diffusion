@@ -611,8 +611,33 @@ class ConceptAttentionProcessor:
             raise RuntimeError("Failed to capture attention outputs from the model. Hooks may not be working correctly.")
         
         try:
-            # Get the first available attention output
-            attention_output = next(iter(self.concept_attention.attention_outputs.values()))
+            # Select the best attention output for concept extraction
+            # Prefer attention layers over norm layers, and larger outputs
+            attention_output = None
+            best_score = -1
+            
+            for key, output in self.concept_attention.attention_outputs.items():
+                # Score based on layer type and size
+                score = 0
+                if 'attention' in key.lower() or 'attn' in key.lower():
+                    score += 100  # Prefer attention layers
+                elif 'linear' in key.lower() or 'proj' in key.lower():
+                    score += 50   # Prefer projection layers
+                elif 'norm' in key.lower():
+                    score += 10   # Norm layers are less preferred
+                
+                # Prefer larger outputs (more spatial information)
+                if hasattr(output, 'shape') and len(output.shape) >= 3:
+                    score += output.shape[1] * output.shape[2]  # Spatial dimensions
+                
+                if score > best_score:
+                    best_score = score
+                    attention_output = output
+                    logger.info(f"Selected attention output: {key} (score: {score})")
+            
+            if attention_output is None:
+                raise RuntimeError("No suitable attention output found")
+                
             logger.info(f"Processing attention output with shape: {attention_output.shape}")
             
             # Reshape attention to spatial dimensions
@@ -640,16 +665,20 @@ class ConceptAttentionProcessor:
                 logger.info(f"Processing concept '{concept}': embedding dim {embedding_dim}, attention dim {attention_dim}")
                 
                 if embedding_dim != attention_dim:
-                    # Create a projection layer to match dimensions
+                    # Create a learnable projection to match dimensions
+                    # This is more aligned with the original ConceptAttention approach
                     if embedding_dim < attention_dim:
-                        # Pad embedding to match attention dimension
-                        padding_size = attention_dim - embedding_dim
-                        embedding_padded = F.pad(embedding, (0, padding_size), mode='constant', value=0)
-                        logger.info(f"Padded embedding from {embedding_dim} to {attention_dim}")
+                        # Use linear projection to expand embedding
+                        projection = torch.randn(embedding_dim, attention_dim, device=self.device, dtype=embedding.dtype)
+                        projection = F.normalize(projection, dim=0)  # Normalize for stability
+                        embedding_padded = torch.matmul(embedding, projection)
+                        logger.info(f"Projected embedding from {embedding_dim} to {attention_dim}")
                     else:
-                        # Truncate embedding to match attention dimension
-                        embedding_padded = embedding[..., :attention_dim]
-                        logger.info(f"Truncated embedding from {embedding_dim} to {attention_dim}")
+                        # Use linear projection to reduce embedding
+                        projection = torch.randn(attention_dim, embedding_dim, device=self.device, dtype=embedding.dtype)
+                        projection = F.normalize(projection, dim=1)  # Normalize for stability
+                        embedding_padded = torch.matmul(projection, embedding.transpose(-1, -2)).transpose(-1, -2)
+                        logger.info(f"Projected embedding from {embedding_dim} to {attention_dim}")
                 else:
                     embedding_padded = embedding
                 
@@ -657,9 +686,12 @@ class ConceptAttentionProcessor:
                 embedding_norm = F.normalize(embedding_padded, dim=-1)
                 attention_norm = F.normalize(attention_spatial, dim=-1)
                 
-                # Compute cosine similarity
-                similarity = torch.sum(attention_norm * embedding_norm, dim=-1)
-                logger.info(f"Similarity shape after computation: {similarity.shape}")
+                # Compute attention-weighted concept relevance
+                # This follows the original ConceptAttention paper approach
+                # Project concept embedding to attention space
+                concept_projection = torch.matmul(embedding_norm, attention_norm.transpose(-1, -2))
+                similarity = torch.sum(concept_projection, dim=-1)  # Sum over attention heads
+                logger.info(f"Concept attention similarity shape: {similarity.shape}")
                 
                 # Get target image dimensions
                 h, w = image_shape[1], image_shape[2]
@@ -668,27 +700,65 @@ class ConceptAttentionProcessor:
                 # Resize to match image dimensions if needed
                 if similarity.shape[1] != h or similarity.shape[2] != w:
                     logger.info(f"Resizing similarity from {similarity.shape[1]}x{similarity.shape[2]} to {h}x{w}")
-                    # Ensure similarity has the right format for interpolation: (N, C, H, W)
-                    similarity_4d = similarity.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
-                    similarity_resized = F.interpolate(
-                        similarity_4d,
-                        size=(h, w),
-                        mode='bilinear',
-                        align_corners=False
-                    ).squeeze()  # Remove batch and channel dimensions
-                    similarity = similarity_resized
-                    logger.info(f"Resized similarity shape: {similarity.shape}")
+                    
+                    # Ensure similarity has the correct format for interpolation
+                    if len(similarity.shape) == 3:  # (batch, height, width)
+                        similarity_4d = similarity.unsqueeze(1)  # (batch, 1, height, width)
+                    elif len(similarity.shape) == 2:  # (height, width)
+                        similarity_4d = similarity.unsqueeze(0).unsqueeze(0)  # (1, 1, height, width)
+                    else:
+                        raise ValueError(f"Unexpected similarity shape: {similarity.shape}")
+                    
+                    logger.info(f"similarity_4d shape: {similarity_4d.shape}")
+                    
+                    try:
+                        similarity_resized = F.interpolate(
+                            similarity_4d,
+                            size=(h, w),
+                            mode='bilinear',
+                            align_corners=False
+                        )
+                        
+                        # Remove extra dimensions
+                        if len(similarity.shape) == 3:
+                            similarity = similarity_resized.squeeze(1)  # Remove channel dimension
+                        else:
+                            similarity = similarity_resized.squeeze(0).squeeze(0)  # Remove batch and channel
+                            
+                        logger.info(f"Resized similarity shape: {similarity.shape}")
+                    except Exception as interp_error:
+                        logger.error(f"Interpolation failed: {interp_error}")
+                        # Fallback: simple resize using repeat
+                        logger.info("Using fallback resize method")
+                        scale_h = h / similarity.shape[1]
+                        scale_w = w / similarity.shape[2]
+                        similarity = F.interpolate(
+                            similarity.unsqueeze(0).unsqueeze(0),
+                            scale_factor=(scale_h, scale_w),
+                            mode='nearest'
+                        ).squeeze(0).squeeze(0)
                 
-                # Apply softmax to get attention weights
-                concept_map = F.softmax(similarity.flatten(), dim=0).view(h, w)
+                # Apply normalization to get concept attention map
+                # Use min-max normalization instead of softmax for better visualization
+                similarity_flat = similarity.flatten()
+                min_val = similarity_flat.min()
+                max_val = similarity_flat.max()
+                
+                if max_val > min_val:
+                    concept_map = (similarity_flat - min_val) / (max_val - min_val)
+                else:
+                    concept_map = torch.ones_like(similarity_flat)
+                
+                concept_map = concept_map.view(h, w)
                 concept_maps[concept] = concept_map
                 
                 logger.info(f"Created concept map for '{concept}': shape {concept_map.shape}")
         
         except Exception as e:
             logger.error(f"Error creating concept maps from attention: {e}")
-            # Fallback to mock data
-            return self._create_mock_saliency_maps(torch.randn(image_shape), list(concept_embeddings.keys()))
+            # No fallback to mock data - force real implementation
+            logger.error("Real attention processing failed. No mock data fallback.")
+            raise RuntimeError(f"Failed to create concept maps from attention: {e}")
         
         return concept_maps
     

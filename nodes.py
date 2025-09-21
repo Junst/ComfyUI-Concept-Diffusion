@@ -202,99 +202,9 @@ class ConceptSaliencyMapNode:
         print(f"DEBUG: looking for concept: {concept_name}")
         
         if not concept_maps or concept_name not in concept_maps:
-            print(f"DEBUG: Concept '{concept_name}' not found, creating fallback map")
-            # Create a fallback saliency map
-            mock_map = torch.zeros((512, 512))
-            
-            # Create sophisticated patterns based on concept name
-            if 'woman' in concept_name.lower():
-                # Woman: Detailed human figure pattern
-                # Head (circular)
-                center_h, center_w = 150, 256
-                y, x = torch.meshgrid(torch.arange(512), torch.arange(512), indexing='ij')
-                head_dist = torch.sqrt((x - center_w)**2 + (y - center_h)**2)
-                mock_map[head_dist < 60] = torch.exp(-head_dist[head_dist < 60] / 30)
-                
-                # Body (rectangular with gradient)
-                body_y1, body_y2 = 180, 350
-                body_x1, body_x2 = 200, 312
-                for y in range(body_y1, body_y2):
-                    for x in range(body_x1, body_x2):
-                        # Create gradient from center
-                        center_dist = torch.sqrt(torch.tensor((x - 256)**2 + (y - 265)**2, dtype=torch.float32))
-                        mock_map[y, x] = max(0, 0.8 - center_dist.item() / 100)
-                
-                # Arms
-                # Left arm
-                mock_map[200:300, 150:200] = 0.6
-                # Right arm
-                mock_map[200:300, 312:362] = 0.6
-                
-            elif 'cat' in concept_name.lower():
-                # Cat: Small oval on shoulder
-                center_h, center_w = 200, 350
-                y, x = torch.meshgrid(torch.arange(512), torch.arange(512), indexing='ij')
-                cat_dist = torch.sqrt(((x - center_w)/1.5)**2 + (y - center_h)**2)
-                mock_map[cat_dist < 40] = torch.exp(-cat_dist[cat_dist < 40] / 20)
-                
-            elif 'white' in concept_name.lower():
-                # White: Hair and dress details
-                # Hair region (top)
-                hair_y1, hair_y2 = 80, 180
-                hair_x1, hair_x2 = 200, 312
-                mock_map[hair_y1:hair_y2, hair_x1:hair_x2] = 0.7
-                
-                # Dress white details (center)
-                dress_y1, dress_y2 = 250, 350
-                dress_x1, dress_x2 = 180, 332
-                mock_map[dress_y1:dress_y2, dress_x1:dress_x2] = 0.6
-                
-                # Add some bright spots
-                mock_map[100:120, 220:240] = 0.9
-                mock_map[280:300, 280:300] = 0.9
-                
-            elif 'lines' in concept_name.lower():
-                # Lines: Detailed line patterns
-                # Dress horizontal lines
-                for line_y in range(250, 350, 8):
-                    mock_map[line_y:line_y+2, 180:332] = 0.8
-                
-                # Dress vertical lines
-                for line_x in range(200, 312, 12):
-                    mock_map[250:350, line_x:line_x+2] = 0.7
-                
-                # Hair lines
-                for line_y in range(100, 180, 3):
-                    mock_map[line_y:line_y+1, 200:312] = 0.6
-                
-                # Decorative lines
-                for i in range(0, 512, 25):
-                    mock_map[i:i+1, :] = 0.4
-                
-            elif 'cane' in concept_name.lower():
-                # Cane: Two vertical canes
-                # Left cane
-                mock_map[200:400, 120:140] = 0.8
-                # Right cane
-                mock_map[220:380, 380:400] = 0.8
-                # Cane handles
-                mock_map[200:210, 120:140] = 0.9
-                mock_map[220:230, 380:400] = 0.9
-                
-            else:
-                # Default pattern
-                mock_map[200:300, 200:300] = 0.5
-            
-            mask = (mock_map > threshold).float()
-            saliency_image = mock_map.unsqueeze(-1).repeat(1, 1, 3)
-            
-            # Ensure proper dimensions for ComfyUI
-            if len(mask.shape) == 2:
-                mask = mask.unsqueeze(0)
-            if len(saliency_image.shape) == 3:
-                saliency_image = saliency_image.unsqueeze(0)
-            
-            return (mask, saliency_image)
+            print(f"ERROR: Concept '{concept_name}' not found in concept_maps!")
+            print(f"Available concepts: {list(concept_maps.keys()) if concept_maps else 'None'}")
+            raise ValueError(f"Concept '{concept_name}' not found in concept_maps. Available: {list(concept_maps.keys()) if concept_maps else 'None'}")
         
         saliency_map = concept_maps[concept_name]
         print(f"DEBUG: saliency_map shape: {saliency_map.shape}")
@@ -359,13 +269,40 @@ class ConceptSegmentationNode:
         # Create segmentation mask
         segmentation_mask = torch.zeros((1, h, w))
         
-        # Create more sophisticated mock segmentation based on image content
-        print("DEBUG: Creating sophisticated mock segmentation for all concepts")
+        # Process real concept maps for segmentation
+        print("DEBUG: Processing real concept maps for segmentation")
         
         for i, concept in enumerate(concept_list):
-            print(f"DEBUG: Creating detailed region for concept {i+1}: {concept}")
+            print(f"DEBUG: Processing concept {i+1}: {concept}")
             
-            if 'woman' in concept.lower():
+            if concept in concept_maps:
+                # Use real concept map
+                concept_map = concept_maps[concept]
+                print(f"DEBUG: Using real concept map for '{concept}': shape {concept_map.shape}")
+                
+                # Convert concept map to segmentation mask
+                # Threshold the concept map to create binary mask
+                threshold = 0.5
+                binary_mask = (concept_map > threshold).float()
+                
+                # Resize to match image dimensions if needed
+                if binary_mask.shape != (h, w):
+                    binary_mask = F.interpolate(
+                        binary_mask.unsqueeze(0).unsqueeze(0),
+                        size=(h, w),
+                        mode='bilinear',
+                        align_corners=False
+                    ).squeeze()
+                
+                # Assign to segmentation mask
+                segmentation_mask[0] += binary_mask * (i + 1)
+            else:
+                print(f"ERROR: Concept '{concept}' not found in concept_maps!")
+                print(f"Available concepts: {list(concept_maps.keys()) if concept_maps else 'None'}")
+                raise ValueError(f"Concept '{concept}' not found in concept_maps")
+            
+            # Remove the old mock data generation
+            if False:  # This will never execute, keeping for reference
                 # Woman: Center figure with head, body, and dress
                 # Head region (top center)
                 head_y1, head_y2 = int(h*0.15), int(h*0.35)
