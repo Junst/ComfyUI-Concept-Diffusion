@@ -584,17 +584,21 @@ class ConceptAttentionProcessor:
                     elif hasattr(text_encoder, 'forward'):
                         embedding = text_encoder(tokens["input_ids"])
                     else:
-                        # Fallback: create dummy embedding
-                        embedding = torch.randn(1, 512, device=self.device)
+                        # Fallback: create dummy embedding with proper dtype
+                        model_dtype = next(self.model.parameters()).dtype if hasattr(self.model, 'parameters') else torch.float32
+                        embedding = torch.randn(1, 512, device=self.device, dtype=model_dtype)
                 
+                # Ensure embedding is on correct device and dtype
+                embedding = embedding.to(device=self.device)
                 concept_embeddings[concept] = embedding
-                logger.info(f"Extracted embedding for '{concept}': shape {embedding.shape}")
+                logger.info(f"Extracted embedding for '{concept}': shape {embedding.shape}, dtype {embedding.dtype}")
                 
         except Exception as e:
             logger.error(f"Error extracting concept embeddings: {e}")
-            # Create dummy embeddings as fallback
+            # Create dummy embeddings as fallback with proper dtype
+            model_dtype = next(self.model.parameters()).dtype if hasattr(self.model, 'parameters') else torch.float32
             for concept in concepts:
-                concept_embeddings[concept] = torch.randn(1, 512, device=self.device)
+                concept_embeddings[concept] = torch.randn(1, 512, device=self.device, dtype=model_dtype)
         
         return concept_embeddings
     
@@ -664,18 +668,23 @@ class ConceptAttentionProcessor:
                 
                 logger.info(f"Processing concept '{concept}': embedding dim {embedding_dim}, attention dim {attention_dim}")
                 
+                # Ensure dtype consistency between embedding and attention
+                attention_dtype = attention_spatial.dtype
+                embedding = embedding.to(dtype=attention_dtype)
+                logger.info(f"Converted embedding to dtype: {attention_dtype}")
+                
                 if embedding_dim != attention_dim:
                     # Create a learnable projection to match dimensions
                     # This is more aligned with the original ConceptAttention approach
                     if embedding_dim < attention_dim:
                         # Use linear projection to expand embedding
-                        projection = torch.randn(embedding_dim, attention_dim, device=self.device, dtype=embedding.dtype)
+                        projection = torch.randn(embedding_dim, attention_dim, device=self.device, dtype=attention_dtype)
                         projection = F.normalize(projection, dim=0)  # Normalize for stability
                         embedding_padded = torch.matmul(embedding, projection)
                         logger.info(f"Projected embedding from {embedding_dim} to {attention_dim}")
                     else:
                         # Use linear projection to reduce embedding
-                        projection = torch.randn(attention_dim, embedding_dim, device=self.device, dtype=embedding.dtype)
+                        projection = torch.randn(attention_dim, embedding_dim, device=self.device, dtype=attention_dtype)
                         projection = F.normalize(projection, dim=1)  # Normalize for stability
                         embedding_padded = torch.matmul(projection, embedding.transpose(-1, -2)).transpose(-1, -2)
                         logger.info(f"Projected embedding from {embedding_dim} to {attention_dim}")
@@ -712,6 +721,9 @@ class ConceptAttentionProcessor:
                     logger.info(f"similarity_4d shape: {similarity_4d.shape}")
                     
                     try:
+                        # Ensure dtype consistency for interpolation
+                        similarity_4d = similarity_4d.to(dtype=attention_dtype)
+                        
                         similarity_resized = F.interpolate(
                             similarity_4d,
                             size=(h, w),
@@ -732,8 +744,9 @@ class ConceptAttentionProcessor:
                         logger.info("Using fallback resize method")
                         scale_h = h / similarity.shape[1]
                         scale_w = w / similarity.shape[2]
+                        similarity_fallback = similarity.unsqueeze(0).unsqueeze(0).to(dtype=attention_dtype)
                         similarity = F.interpolate(
-                            similarity.unsqueeze(0).unsqueeze(0),
+                            similarity_fallback,
                             scale_factor=(scale_h, scale_w),
                             mode='nearest'
                         ).squeeze(0).squeeze(0)
