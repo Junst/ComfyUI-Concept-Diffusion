@@ -617,6 +617,7 @@ class ConceptAttentionProcessor:
             
             # Reshape attention to spatial dimensions
             batch_size, seq_len, dim = attention_output.shape
+            logger.info(f"Attention output shape: batch_size={batch_size}, seq_len={seq_len}, dim={dim}")
             
             # Assume square spatial layout (common in DiT models)
             spatial_size = int(np.sqrt(seq_len))
@@ -624,6 +625,8 @@ class ConceptAttentionProcessor:
                 # Fallback: use rectangular layout
                 spatial_size = int(np.sqrt(seq_len))
                 logger.warning(f"Non-square sequence length {seq_len}, using {spatial_size}x{spatial_size}")
+            
+            logger.info(f"Reshaping to spatial format: {batch_size}x{spatial_size}x{spatial_size}x{dim}")
             
             # Reshape attention to spatial format
             attention_spatial = attention_output.view(batch_size, spatial_size, spatial_size, dim)
@@ -656,16 +659,25 @@ class ConceptAttentionProcessor:
                 
                 # Compute cosine similarity
                 similarity = torch.sum(attention_norm * embedding_norm, dim=-1)
+                logger.info(f"Similarity shape after computation: {similarity.shape}")
                 
-                # Resize to match image dimensions
+                # Get target image dimensions
                 h, w = image_shape[1], image_shape[2]
+                logger.info(f"Target image dimensions: {h}x{w}")
+                
+                # Resize to match image dimensions if needed
                 if similarity.shape[1] != h or similarity.shape[2] != w:
-                    similarity = F.interpolate(
-                        similarity.unsqueeze(0).unsqueeze(0),
+                    logger.info(f"Resizing similarity from {similarity.shape[1]}x{similarity.shape[2]} to {h}x{w}")
+                    # Ensure similarity has the right format for interpolation: (N, C, H, W)
+                    similarity_4d = similarity.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
+                    similarity_resized = F.interpolate(
+                        similarity_4d,
                         size=(h, w),
                         mode='bilinear',
                         align_corners=False
-                    ).squeeze()
+                    ).squeeze()  # Remove batch and channel dimensions
+                    similarity = similarity_resized
+                    logger.info(f"Resized similarity shape: {similarity.shape}")
                 
                 # Apply softmax to get attention weights
                 concept_map = F.softmax(similarity.flatten(), dim=0).view(h, w)
