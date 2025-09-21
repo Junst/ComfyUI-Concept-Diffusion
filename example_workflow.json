@@ -81,7 +81,7 @@
       "mode": 0,
       "inputs": [
         {"name": "concept_maps", "type": "CONCEPT_MAPS", "link": 5},
-        {"name": "image", "type": "IMAGE", "link": 1},
+        {"name": "image", "type": "IMAGE", "link": 7},
         {"name": "concepts", "type": "STRING", "link": null}
       ],
       "outputs": [
@@ -173,6 +173,7 @@
     [4, 3, 0, 4, 0, "CONCEPT_MAPS"],
     [5, 3, 0, 5, 0, "CONCEPT_MAPS"],
     [6, 3, 1, 7, 0, "IMAGE"],
+    [7, 1, 0, 5, 1, "IMAGE"],
     [8, 4, 1, 8, 0, "IMAGE"],
     [10, 5, 1, 9, 0, "IMAGE"],
     [11, 6, 0, 10, 0, "IMAGE"]
