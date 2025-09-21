@@ -1,5 +1,5 @@
 # ComfyUI-Concept-Diffusion
-
+# 💥💥💥Fixing Now!!!💥💥💥
 ComfyUI custom node implementation of ConceptAttention: Diffusion Transformers Learn Highly Interpretable Features.
 
 This node allows you to generate high-quality saliency maps that precisely locate textual concepts within images using diffusion transformer attention layers.
