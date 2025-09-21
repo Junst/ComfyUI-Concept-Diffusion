@@ -630,8 +630,28 @@ class ConceptAttentionProcessor:
             
             # Process each concept
             for concept, embedding in concept_embeddings.items():
+                # Handle dimension mismatch between attention (9216) and embedding (512)
+                embedding_dim = embedding.shape[-1]
+                attention_dim = attention_spatial.shape[-1]
+                
+                logger.info(f"Processing concept '{concept}': embedding dim {embedding_dim}, attention dim {attention_dim}")
+                
+                if embedding_dim != attention_dim:
+                    # Create a projection layer to match dimensions
+                    if embedding_dim < attention_dim:
+                        # Pad embedding to match attention dimension
+                        padding_size = attention_dim - embedding_dim
+                        embedding_padded = F.pad(embedding, (0, padding_size), mode='constant', value=0)
+                        logger.info(f"Padded embedding from {embedding_dim} to {attention_dim}")
+                    else:
+                        # Truncate embedding to match attention dimension
+                        embedding_padded = embedding[..., :attention_dim]
+                        logger.info(f"Truncated embedding from {embedding_dim} to {attention_dim}")
+                else:
+                    embedding_padded = embedding
+                
                 # Compute similarity between attention and concept embedding
-                embedding_norm = F.normalize(embedding, dim=-1)
+                embedding_norm = F.normalize(embedding_padded, dim=-1)
                 attention_norm = F.normalize(attention_spatial, dim=-1)
                 
                 # Compute cosine similarity
