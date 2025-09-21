@@ -91,9 +91,31 @@ class ConceptAttentionNode:
         """
         Convert saliency maps to ComfyUI format.
         """
-        # This would be a custom data structure for concept maps
-        # For now, we'll return a dictionary
-        return saliency_maps
+        # Convert to a format that ComfyUI can handle
+        # Create a custom object that can be passed between nodes
+        class ConceptMaps:
+            def __init__(self, maps):
+                self.maps = maps
+                self.keys = list(maps.keys())
+            
+            def __getitem__(self, key):
+                return self.maps[key]
+            
+            def __contains__(self, key):
+                return key in self.maps
+            
+            def keys(self):
+                return self.maps.keys()
+            
+            def values(self):
+                return self.maps.values()
+            
+            def items(self):
+                return self.maps.items()
+        
+        concept_maps_obj = ConceptMaps(saliency_maps)
+        print(f"DEBUG: Converted concept_maps with keys: {list(concept_maps_obj.keys())}")
+        return concept_maps_obj
     
     def _extract_concepts_from_prompt(self, prompt):
         """
@@ -198,15 +220,26 @@ class ConceptSaliencyMapNode:
         """
         Extract a specific concept saliency map and convert to mask.
         """
+        print(f"DEBUG: concept_maps type: {type(concept_maps)}")
         print(f"DEBUG: concept_maps keys: {list(concept_maps.keys()) if concept_maps else 'None'}")
         print(f"DEBUG: looking for concept: {concept_name}")
         
-        if not concept_maps or concept_name not in concept_maps:
-            print(f"ERROR: Concept '{concept_name}' not found in concept_maps!")
-            print(f"Available concepts: {list(concept_maps.keys()) if concept_maps else 'None'}")
-            raise ValueError(f"Concept '{concept_name}' not found in concept_maps. Available: {list(concept_maps.keys()) if concept_maps else 'None'}")
+        # Handle different concept_maps formats
+        if hasattr(concept_maps, 'maps'):
+            # Custom ConceptMaps object
+            actual_maps = concept_maps.maps
+            print(f"DEBUG: Using ConceptMaps object with keys: {list(actual_maps.keys())}")
+        else:
+            # Regular dictionary
+            actual_maps = concept_maps
+            print(f"DEBUG: Using regular dict with keys: {list(actual_maps.keys()) if actual_maps else 'None'}")
         
-        saliency_map = concept_maps[concept_name]
+        if not actual_maps or concept_name not in actual_maps:
+            print(f"ERROR: Concept '{concept_name}' not found in concept_maps!")
+            print(f"Available concepts: {list(actual_maps.keys()) if actual_maps else 'None'}")
+            raise ValueError(f"Concept '{concept_name}' not found in concept_maps. Available: {list(actual_maps.keys()) if actual_maps else 'None'}")
+        
+        saliency_map = actual_maps[concept_name]
         print(f"DEBUG: saliency_map shape: {saliency_map.shape}")
         
         # Ensure saliency_map is 2D
@@ -256,7 +289,18 @@ class ConceptSegmentationNode:
         """
         Perform zero-shot semantic segmentation using concept attention maps.
         """
+        print(f"DEBUG: Segmentation - concept_maps type: {type(concept_maps)}")
         print(f"DEBUG: Segmentation - concept_maps keys: {list(concept_maps.keys()) if concept_maps else 'None'}")
+        
+        # Handle different concept_maps formats
+        if hasattr(concept_maps, 'maps'):
+            # Custom ConceptMaps object
+            actual_maps = concept_maps.maps
+            print(f"DEBUG: Using ConceptMaps object with keys: {list(actual_maps.keys())}")
+        else:
+            # Regular dictionary
+            actual_maps = concept_maps
+            print(f"DEBUG: Using regular dict with keys: {list(actual_maps.keys()) if actual_maps else 'None'}")
         
         # Parse concepts
         concept_list = [c.strip() for c in concepts.split(',') if c.strip()]
@@ -275,9 +319,9 @@ class ConceptSegmentationNode:
         for i, concept in enumerate(concept_list):
             print(f"DEBUG: Processing concept {i+1}: {concept}")
             
-            if concept in concept_maps:
+            if concept in actual_maps:
                 # Use real concept map
-                concept_map = concept_maps[concept]
+                concept_map = actual_maps[concept]
                 print(f"DEBUG: Using real concept map for '{concept}': shape {concept_map.shape}")
                 
                 # Convert concept map to segmentation mask
@@ -298,7 +342,7 @@ class ConceptSegmentationNode:
                 segmentation_mask[0] += binary_mask * (i + 1)
             else:
                 print(f"ERROR: Concept '{concept}' not found in concept_maps!")
-                print(f"Available concepts: {list(concept_maps.keys()) if concept_maps else 'None'}")
+                print(f"Available concepts: {list(actual_maps.keys()) if actual_maps else 'None'}")
                 raise ValueError(f"Concept '{concept}' not found in concept_maps")
             
             # Remove the old mock data generation
@@ -644,9 +688,20 @@ class ConceptAttentionVisualizerNode:
         """
         Create attention overlay visualization
         """
+        print(f"DEBUG: Visualizer - concept_maps type: {type(concept_maps)}")
         print(f"DEBUG: Visualizer - concept_maps keys: {list(concept_maps.keys()) if concept_maps else 'None'}")
         
-        if not concept_maps:
+        # Handle different concept_maps formats
+        if hasattr(concept_maps, 'maps'):
+            # Custom ConceptMaps object
+            actual_maps = concept_maps.maps
+            print(f"DEBUG: Using ConceptMaps object with keys: {list(actual_maps.keys())}")
+        else:
+            # Regular dictionary
+            actual_maps = concept_maps
+            print(f"DEBUG: Using regular dict with keys: {list(actual_maps.keys()) if actual_maps else 'None'}")
+        
+        if not actual_maps:
             print("DEBUG: No concept maps, creating mock visualization")
             # Create mock visualization overlay
             h, w = image.shape[1], image.shape[2]

@@ -763,9 +763,12 @@ class ConceptAttentionProcessor:
                     concept_map = torch.ones_like(similarity_flat)
                 
                 concept_map = concept_map.view(h, w)
+                
+                # Convert to float32 for ComfyUI compatibility
+                concept_map = concept_map.to(dtype=torch.float32)
                 concept_maps[concept] = concept_map
                 
-                logger.info(f"Created concept map for '{concept}': shape {concept_map.shape}")
+                logger.info(f"Created concept map for '{concept}': shape {concept_map.shape}, dtype {concept_map.dtype}")
         
         except Exception as e:
             logger.error(f"Error creating concept maps from attention: {e}")
