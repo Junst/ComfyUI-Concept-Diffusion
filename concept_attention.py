@@ -719,19 +719,37 @@ class ConceptAttentionProcessor:
                 # attention_flat: [1, seq_len, dim]
                 
                 # Project embedding to attention dimension if needed
+                logger.info(f"Embedding shape: {embedding.shape}, embedding_dim: {embedding_dim}, attention_dim: {dim}")
+                
                 if embedding_dim != dim:
                     if embedding_dim < dim:
-                        # Pad embedding
+                        # Pad embedding - ensure same number of dimensions
+                        if len(embedding.shape) == 2:
+                            # embedding is [1, embedding_dim], need to add batch dimension
+                            embedding = embedding.unsqueeze(0)  # [1, 1, embedding_dim]
+                        
                         padding = torch.zeros(1, 1, dim - embedding_dim, device=embedding.device, dtype=embedding.dtype)
                         embedding_expanded = torch.cat([embedding, padding], dim=-1)
+                        logger.info(f"Padded embedding shape: {embedding_expanded.shape}")
                     else:
                         # Truncate embedding
+                        if len(embedding.shape) == 2:
+                            embedding = embedding.unsqueeze(0)  # [1, 1, embedding_dim]
                         embedding_expanded = embedding[:, :, :dim]
+                        logger.info(f"Truncated embedding shape: {embedding_expanded.shape}")
                 else:
-                    embedding_expanded = embedding
+                    if len(embedding.shape) == 2:
+                        embedding_expanded = embedding.unsqueeze(0)  # [1, 1, embedding_dim]
+                    else:
+                        embedding_expanded = embedding
+                    logger.info(f"Unchanged embedding shape: {embedding_expanded.shape}")
                 
                 # Compute similarity: [1, seq_len]
-                similarity = torch.sum(embedding_expanded * attention_flat, dim=-1)
+                # embedding_expanded: [1, 1, dim]
+                # attention_flat: [1, seq_len, dim]
+                # We want to compute similarity for each spatial location
+                similarity = torch.sum(embedding_expanded * attention_flat, dim=-1)  # [1, seq_len]
+                logger.info(f"Similarity after computation: {similarity.shape}")
                 
                 # Reshape to spatial format [1, spatial_h, spatial_w]
                 spatial_size = int(np.sqrt(seq_len))
