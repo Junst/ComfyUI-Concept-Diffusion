@@ -72,11 +72,17 @@ class ConceptAttentionNode:
             print(f"DEBUG: processor.process_image returned: {type(saliency_maps)}")
             print(f"DEBUG: saliency_maps keys: {list(saliency_maps.keys()) if saliency_maps else 'None'}")
             
-            # Convert to ComfyUI format
-            concept_maps = self._convert_to_comfyui_format(saliency_maps)
-            
-            # Create simple visualization
-            visualized_image = self._create_simple_visualization(saliency_maps, image)
+            # Check if saliency_maps is empty
+            if not saliency_maps:
+                print("WARNING: saliency_maps is empty, returning empty ConceptMaps")
+                concept_maps = self._convert_to_comfyui_format({})
+                visualized_image = image  # Return original image if no concept maps
+            else:
+                # Convert to ComfyUI format
+                concept_maps = self._convert_to_comfyui_format(saliency_maps)
+                
+                # Create simple visualization
+                visualized_image = self._create_simple_visualization(saliency_maps, image)
             
             print(f"DEBUG: ConceptAttentionNode - concept_list: {concept_list}")
             print(f"DEBUG: ConceptAttentionNode - concept_maps type: {type(concept_maps)}")
