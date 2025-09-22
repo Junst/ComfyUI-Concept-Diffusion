@@ -89,8 +89,8 @@ class ConceptAttentionNode:
             import traceback
             print(f"Error in ConceptAttention: {e}")
             print(f"Full traceback: {traceback.format_exc()}")
-            # Return empty results on error
-            empty_maps = {}
+            # Return empty ConceptMaps object on error
+            empty_maps = self._convert_to_comfyui_format({})
             return (empty_maps, image)
     
     def _convert_to_comfyui_format(self, saliency_maps):
@@ -153,6 +153,8 @@ class ConceptAttentionNode:
         for i, (concept, concept_map) in enumerate(saliency_maps.items()):
             if i < len(colors):
                 color = colors[i]
+                # Ensure concept_map is on the same device as overlay
+                concept_map = concept_map.to(device=overlay.device)
                 # Normalize concept map to [0, 1]
                 normalized_map = (concept_map - concept_map.min()) / (concept_map.max() - concept_map.min() + 1e-8)
                 # Apply color overlay
