@@ -39,7 +39,7 @@ class ConceptAttentionNode:
             }
         }
     
-    RETURN_TYPES = ("CONCEPT_MAPS", "IMAGE")
+    RETURN_TYPES = ("*", "IMAGE")
     RETURN_NAMES = ("concept_maps", "visualized_image")
     FUNCTION = "generate_concept_attention"
     CATEGORY = "ConceptAttention"
@@ -69,15 +69,16 @@ class ConceptAttentionNode:
                 image, concept_list, clip, None  # tokenizer will be extracted from clip
             )
             
-            # Visualize saliency maps
-            visualized_maps = processor.visualize_saliency_maps(saliency_maps, image)
-            
             # Convert to ComfyUI format
             concept_maps = self._convert_to_comfyui_format(saliency_maps)
-            visualized_image = self._convert_visualized_to_image(visualized_maps, image)
+            
+            # Create simple visualization
+            visualized_image = self._create_simple_visualization(saliency_maps, image)
             
             print(f"DEBUG: ConceptAttentionNode - concept_list: {concept_list}")
+            print(f"DEBUG: ConceptAttentionNode - concept_maps type: {type(concept_maps)}")
             print(f"DEBUG: ConceptAttentionNode - concept_maps keys: {list(concept_maps.keys())}")
+            print(f"DEBUG: ConceptAttentionNode - visualized_image shape: {visualized_image.shape}")
             
             return (concept_maps, visualized_image)
             
@@ -116,6 +117,39 @@ class ConceptAttentionNode:
         concept_maps_obj = ConceptMaps(saliency_maps)
         print(f"DEBUG: Converted concept_maps with keys: {list(concept_maps_obj.keys())}")
         return concept_maps_obj
+    
+    def _create_simple_visualization(self, saliency_maps, original_image):
+        """
+        Create a simple visualization of concept maps.
+        """
+        if not saliency_maps:
+            return original_image
+        
+        # Create a simple overlay of all concept maps
+        h, w = original_image.shape[1], original_image.shape[2]
+        overlay = original_image.clone()
+        
+        # Add concept maps as colored overlays
+        colors = [
+            [1.0, 0.0, 0.0],  # Red
+            [0.0, 1.0, 0.0],  # Green
+            [0.0, 0.0, 1.0],  # Blue
+            [1.0, 1.0, 0.0],  # Yellow
+            [1.0, 0.0, 1.0],  # Magenta
+        ]
+        
+        for i, (concept, concept_map) in enumerate(saliency_maps.items()):
+            if i < len(colors):
+                color = colors[i]
+                # Normalize concept map to [0, 1]
+                normalized_map = (concept_map - concept_map.min()) / (concept_map.max() - concept_map.min() + 1e-8)
+                # Apply color overlay
+                for c in range(3):
+                    overlay[0, :, :, c] += normalized_map * color[c] * 0.3
+        
+        # Clamp values to [0, 1]
+        overlay = torch.clamp(overlay, 0, 1)
+        return overlay
     
     def _extract_concepts_from_prompt(self, prompt):
         """
@@ -199,7 +233,7 @@ class ConceptSaliencyMapNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "concept_maps": ("CONCEPT_MAPS",),
+                "concept_maps": ("*",),
                 "concept_name": ("STRING", {"default": "woman"}),
                 "threshold": ("FLOAT", {
                     "default": 0.5,
@@ -270,7 +304,7 @@ class ConceptSegmentationNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "concept_maps": ("CONCEPT_MAPS",),
+                "concept_maps": ("*",),
                 "image": ("IMAGE",),
                 "concepts": ("STRING", {
                     "multiline": True,
@@ -502,7 +536,7 @@ class ConceptAttentionVisualizerNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "concept_maps": ("CONCEPT_MAPS",),
+                "concept_maps": ("*",),
                 "image": ("IMAGE",),
                 "overlay_alpha": ("FLOAT", {
                     "default": 0.5,
@@ -665,7 +699,7 @@ class ConceptAttentionVisualizerNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "concept_maps": ("CONCEPT_MAPS",),
+                "concept_maps": ("*",),
                 "image": ("IMAGE",),
             },
             "optional": {
