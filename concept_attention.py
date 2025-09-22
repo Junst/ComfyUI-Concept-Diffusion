@@ -630,9 +630,21 @@ class ConceptAttentionProcessor:
                 elif 'norm' in key.lower():
                     score += 10   # Norm layers are less preferred
                 
-                # Prefer larger outputs (more spatial information)
+                # Prefer outputs with proper spatial structure
                 if hasattr(output, 'shape') and len(output.shape) >= 3:
-                    score += output.shape[1] * output.shape[2]  # Spatial dimensions
+                    # Check if it's already in spatial format [B, H, W, C] or [B, C, H, W]
+                    if len(output.shape) == 4:
+                        if output.shape[1] == output.shape[2]:  # Square spatial format
+                            score += 200  # Much higher score for proper spatial format
+                        else:
+                            score += output.shape[1] * output.shape[2]  # Spatial dimensions
+                    else:
+                        # For [B, seq_len, dim] format, prefer smaller seq_len (more focused)
+                        seq_len = output.shape[1]
+                        if seq_len <= 1024:  # Prefer smaller, more focused attention
+                            score += 1000 // seq_len  # Higher score for smaller seq_len
+                        else:
+                            score += 50  # Lower score for very large seq_len
                 
                 if score > best_score:
                     best_score = score
@@ -697,19 +709,39 @@ class ConceptAttentionProcessor:
                 
                 # Compute attention-weighted concept relevance
                 # This follows the original ConceptAttention paper approach
-                # Project concept embedding to attention space
-                concept_projection = torch.matmul(embedding_norm, attention_norm.transpose(-1, -2))
                 
-                # Ensure we maintain spatial dimensions properly
-                if len(concept_projection.shape) == 3:
-                    # concept_projection is [batch, seq_len, attention_dim]
-                    # We want to sum over the attention dimension but keep spatial structure
-                    similarity = torch.sum(concept_projection, dim=-1)  # [batch, seq_len]
+                # Method 1: Direct similarity computation
+                # Reshape attention to [batch, seq_len, dim] for easier computation
+                attention_flat = attention_spatial.view(batch_size, seq_len, dim)
+                
+                # Compute cosine similarity between concept embedding and attention features
+                # embedding_norm: [1, 1, embedding_dim]
+                # attention_flat: [1, seq_len, dim]
+                
+                # Project embedding to attention dimension if needed
+                if embedding_dim != dim:
+                    if embedding_dim < dim:
+                        # Pad embedding
+                        padding = torch.zeros(1, 1, dim - embedding_dim, device=embedding.device, dtype=embedding.dtype)
+                        embedding_expanded = torch.cat([embedding, padding], dim=-1)
+                    else:
+                        # Truncate embedding
+                        embedding_expanded = embedding[:, :, :dim]
                 else:
-                    # Fallback: take mean over last dimension
-                    similarity = torch.mean(concept_projection, dim=-1)
+                    embedding_expanded = embedding
                 
-                logger.info(f"Concept attention similarity shape: {similarity.shape}")
+                # Compute similarity: [1, seq_len]
+                similarity = torch.sum(embedding_expanded * attention_flat, dim=-1)
+                
+                # Reshape to spatial format [1, spatial_h, spatial_w]
+                spatial_size = int(np.sqrt(seq_len))
+                if spatial_size * spatial_size == seq_len:
+                    similarity = similarity.view(1, spatial_size, spatial_size)
+                    logger.info(f"Reshaped similarity to spatial format: {similarity.shape}")
+                else:
+                    logger.warning(f"Cannot reshape similarity {similarity.shape} to square format")
+                
+                logger.info(f"Final similarity shape: {similarity.shape}")
                 
                 # Get target image dimensions
                 h, w = image_shape[1], image_shape[2]
