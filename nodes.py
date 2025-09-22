@@ -389,6 +389,9 @@ class ConceptSegmentationNode:
                         align_corners=False
                     ).squeeze()
                 
+                # Ensure binary_mask is on the same device as segmentation_mask
+                binary_mask = binary_mask.to(device=segmentation_mask.device)
+                
                 # Assign to segmentation mask
                 segmentation_mask[0] += binary_mask * (i + 1)
             else:
