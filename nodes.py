@@ -80,7 +80,7 @@ class ConceptAttentionNode:
             
             print(f"DEBUG: ConceptAttentionNode - concept_list: {concept_list}")
             print(f"DEBUG: ConceptAttentionNode - concept_maps type: {type(concept_maps)}")
-            print(f"DEBUG: ConceptAttentionNode - concept_maps keys: {list(concept_maps.keys())}")
+            print(f"DEBUG: ConceptAttentionNode - concept_maps keys: {concept_maps.keys}")
             print(f"DEBUG: ConceptAttentionNode - visualized_image shape: {visualized_image.shape}")
             
             return (concept_maps, visualized_image)
@@ -111,7 +111,7 @@ class ConceptAttentionNode:
                 return key in self.maps
             
             def keys(self):
-                return self.maps.keys()
+                return list(self.maps.keys())
             
             def values(self):
                 return self.maps.values()
@@ -125,7 +125,7 @@ class ConceptAttentionNode:
         else:
             concept_maps_obj = ConceptMaps(saliency_maps)
         
-        print(f"DEBUG: Converted concept_maps with keys: {list(concept_maps_obj.keys())}")
+        print(f"DEBUG: Converted concept_maps with keys: {concept_maps_obj.keys}")
         print(f"DEBUG: ConceptMaps object type: {type(concept_maps_obj)}")
         print(f"DEBUG: ConceptMaps.maps type: {type(concept_maps_obj.maps)}")
         return concept_maps_obj
