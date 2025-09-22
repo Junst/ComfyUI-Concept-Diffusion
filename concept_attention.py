@@ -13,6 +13,14 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Import einops for einsum operations (like original ConceptAttention)
+try:
+    import einops
+    EINOPS_AVAILABLE = True
+except ImportError:
+    EINOPS_AVAILABLE = False
+    logger.warning("einops not available, using torch operations instead")
+
 class ConceptAttention:
     def __init__(self, model, device="cuda"):
         self.model = model
@@ -172,6 +180,7 @@ class ConceptAttention:
                 score = 0
                 
                 # Target specific Flux DiT attention components based on original ConceptAttention
+                # Original ConceptAttention uses layers 15-19 (later layers) for better concept extraction
                 if 'selfattention' in key.lower():
                     score += 2000  # Highest priority for SelfAttention
                 elif 'doubleblock' in key.lower() and ('attn' in key.lower() or 'attention' in key.lower()):
@@ -188,11 +197,18 @@ class ConceptAttention:
                     # Skip non-attention layers completely
                     continue
                 
-                # Prefer layers from later stages (higher layer numbers)
+                # Prefer layers from later stages (higher layer numbers) - like original ConceptAttention
+                # Original ConceptAttention uses layers 15-19 for better concept extraction
                 if 'blocks.' in key:
                     try:
                         layer_num = int(key.split('blocks.')[1].split('.')[0])
-                        score += layer_num * 10  # Higher layers get more points
+                        # Prioritize layers 15-19 (like original ConceptAttention)
+                        if 15 <= layer_num <= 19:
+                            score += 5000  # Much higher score for target layers
+                        elif layer_num >= 10:
+                            score += layer_num * 20  # Higher layers get more points
+                        else:
+                            score += layer_num * 5  # Lower layers get fewer points
                     except:
                         pass
                 
@@ -262,27 +278,31 @@ class ConceptAttention:
                 else:
                     embedding_expanded = embedding_projected
                 
-                # Compute concept-image joint attention (based on original ConceptAttention)
-                # embedding_expanded: [1, 1, dim] - concept vectors
-                # attention_flat: [1, seq_len, dim] - image attention vectors
+                # Original ConceptAttention approach using einsum operations
+                # This follows the exact approach from the original paper
                 
-                # Method 1: Original ConceptAttention einsum approach
-                # Simulate einsum: "batch concepts dim, batch patches dim -> batch concepts patches"
-                concept_attn_output = embedding_expanded  # [1, 1, dim] - concept attention output
-                attn_output = attention_spatial.view(1, -1, attention_dim)  # [1, seq_len, dim] - image attention output
+                # Reshape attention to [batch, seq_len, dim] for einsum operation
+                attention_flat = attention_spatial.view(1, -1, attention_dim)
                 
-                # Compute concept-image attention map using einsum-like operation
-                # [1, 1, dim] @ [1, dim, seq_len] = [1, 1, seq_len]
-                concept_attention_map = torch.matmul(concept_attn_output, attn_output.transpose(-1, -2))
-                similarity = concept_attention_map.squeeze(1)  # [1, seq_len]
-                
-                # Method 2: Direct similarity (fallback)
-                embedding_norm = F.normalize(embedding_expanded, dim=-1)
-                attention_norm = F.normalize(attn_output, dim=-1)
-                direct_sim = torch.sum(embedding_norm * attention_norm, dim=-1)  # [1, seq_len]
-                
-                # Combine original ConceptAttention approach and direct similarity
-                similarity = 0.9 * similarity + 0.1 * direct_sim
+                # Compute concept-image attention map using original ConceptAttention method
+                if EINOPS_AVAILABLE:
+                    # Use einops.einsum like the original implementation
+                    try:
+                        # einsum: "batch concepts dim, batch patches dim -> batch concepts patches"
+                        concept_attention_map = einops.einsum(
+                            embedding_expanded,  # [1, 1, dim] - concept vectors
+                            attention_flat,      # [1, seq_len, dim] - image vectors
+                            "batch concepts dim, batch patches dim -> batch concepts patches"
+                        )
+                        similarity = concept_attention_map.squeeze(1)  # [1, seq_len]
+                        logger.info("✅ Used einops.einsum for concept attention computation")
+                    except Exception as e:
+                        logger.warning(f"einops.einsum failed: {e}, falling back to torch operations")
+                        # Fallback to torch operations
+                        similarity = torch.matmul(embedding_expanded, attention_flat.transpose(-1, -2)).squeeze(1)
+                else:
+                    # Use torch operations as fallback
+                    similarity = torch.matmul(embedding_expanded, attention_flat.transpose(-1, -2)).squeeze(1)
                 
                 # Reshape to spatial format [1, spatial_h, spatial_w]
                 spatial_size = int(np.sqrt(seq_len))

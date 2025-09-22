@@ -6,4 +6,5 @@ numpy
 Pillow
 scipy
 matplotlib
+einops
 
