@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+import math
 from typing import List, Dict, Tuple, Optional
 import logging
 
@@ -35,12 +36,15 @@ class ConceptAttention:
             module_name = getattr(module, '__class__', type(module)).__name__
             logger.info(f"🔍 HOOK CALLED on {module_name} - checking if attention-related")
             
-            # Capture outputs from attention-related modules
-            if any(keyword in module_name.lower() for keyword in ['attention', 'attn', 'query', 'key', 'value', 'proj', 'norm', 'linear']):
+            # Capture outputs from Flux DiT specific attention modules
+            if any(keyword in module_name.lower() for keyword in [
+                'selfattention', 'crossattention', 'doubleblock', 
+                'img_attn', 'txt_attn', 'attention'
+            ]):
                 # Create a unique key for this hook
                 hook_key = f"{module_name}_{id(module)}"
                 self.attention_outputs[hook_key] = output
-                logger.info(f"🎯 HOOK TRIGGERED! Captured output from {module_name}")
+                logger.info(f"🎯 FLUX DIT HOOK TRIGGERED! Captured output from {module_name}")
                 logger.info(f"   Hook key: {hook_key}")
                 logger.info(f"   Shape: {output.shape}")
                 logger.info(f"   Type: {type(output)}")
@@ -48,7 +52,7 @@ class ConceptAttention:
                 logger.info(f"   Total attention outputs captured: {len(self.attention_outputs)}")
                 logger.info(f"   Current attention_outputs keys: {list(self.attention_outputs.keys())}")
             else:
-                logger.info(f"Hook called on {module_name} but not capturing (not attention-related)")
+                logger.info(f"Hook called on {module_name} but not capturing (not Flux DiT attention)")
         
         # Get the actual model from ModelPatcher
         actual_model = getattr(self.model, 'model', self.model)
@@ -124,15 +128,20 @@ class ConceptAttention:
         """
         Fallback method to register hooks when named_modules is not available.
         """
-        # Try to find attention modules by iterating through model attributes
+        # Try to find Flux DiT attention modules by iterating through model attributes
         for attr_name in dir(model):
             if not attr_name.startswith('_'):
                 try:
                     attr = getattr(model, attr_name)
                     if hasattr(attr, 'register_forward_hook'):
-                        if 'attention' in attr_name.lower() or 'attn' in attr_name.lower():
+                        # Target specific Flux DiT attention modules
+                        if any(keyword in attr_name.lower() for keyword in [
+                            'selfattention', 'crossattention', 'doubleblock', 
+                            'img_attn', 'txt_attn', 'attention'
+                        ]):
                             hook = attr.register_forward_hook(hook_fn)
                             self.attention_hooks.append(hook)
+                            logger.info(f"Registered hook on Flux DiT module: {attr_name}")
                 except:
                     continue
     
@@ -623,12 +632,31 @@ class ConceptAttentionProcessor:
             for key, output in self.concept_attention.attention_outputs.items():
                 # Score based on layer type and size
                 score = 0
-                if 'attention' in key.lower() or 'attn' in key.lower():
-                    score += 100  # Prefer attention layers
-                elif 'linear' in key.lower() or 'proj' in key.lower():
-                    score += 50   # Prefer projection layers
-                elif 'norm' in key.lower():
-                    score += 10   # Norm layers are less preferred
+                
+                # Target specific Flux DiT attention components based on original ConceptAttention
+                if 'selfattention' in key.lower():
+                    score += 2000  # Highest priority for SelfAttention
+                elif 'doubleblock' in key.lower() and ('attn' in key.lower() or 'attention' in key.lower()):
+                    score += 1800  # DoubleStreamBlock attention (like original)
+                elif 'img_attn' in key.lower() or 'txt_attn' in key.lower():
+                    score += 1600  # Image/Text attention modules
+                elif 'qkv' in key.lower():
+                    score += 1400  # QKV layers (core attention components)
+                elif 'proj' in key.lower() and ('attn' in key.lower() or 'attention' in key.lower()):
+                    score += 1200  # Attention projection layers
+                elif 'norm' in key.lower() and ('attn' in key.lower() or 'attention' in key.lower()):
+                    score += 1000  # Attention normalization layers
+                else:
+                    # Skip non-attention layers completely
+                    continue
+                
+                # Prefer layers from later stages (higher layer numbers)
+                if 'blocks.' in key:
+                    try:
+                        layer_num = int(key.split('blocks.')[1].split('.')[0])
+                        score += layer_num * 10  # Higher layers get more points
+                    except:
+                        pass
                 
                 # Prefer outputs with proper spatial structure
                 if hasattr(output, 'shape') and len(output.shape) >= 3:
@@ -744,12 +772,35 @@ class ConceptAttentionProcessor:
                         embedding_expanded = embedding
                     logger.info(f"Unchanged embedding shape: {embedding_expanded.shape}")
                 
-                # Compute similarity: [1, seq_len]
-                # embedding_expanded: [1, 1, dim]
-                # attention_flat: [1, seq_len, dim]
-                # We want to compute similarity for each spatial location
-                similarity = torch.sum(embedding_expanded * attention_flat, dim=-1)  # [1, seq_len]
+                # Compute concept-image joint attention (inspired by original ConceptAttention)
+                # embedding_expanded: [1, 1, dim] - concept vectors
+                # attention_flat: [1, seq_len, dim] - image attention vectors
+                
+                # Method 1: Cross-attention between concept and image (like original)
+                # Concept as query, image as key/value
+                concept_query = embedding_expanded  # [1, 1, dim]
+                image_key = attention_flat  # [1, seq_len, dim]
+                image_value = attention_flat  # [1, seq_len, dim]
+                
+                # Compute cross-attention weights
+                attention_weights = torch.matmul(concept_query, image_key.transpose(-1, -2))  # [1, 1, seq_len]
+                attention_weights = F.softmax(attention_weights / math.sqrt(dim), dim=-1)
+                
+                # Apply attention to get concept-image similarity
+                cross_attention_sim = torch.matmul(attention_weights, image_value)  # [1, 1, dim]
+                similarity = torch.sum(cross_attention_sim * concept_query, dim=-1)  # [1, 1]
+                similarity = similarity.expand(1, seq_len)  # [1, seq_len]
+                
+                # Method 2: Direct similarity (fallback)
+                embedding_norm = F.normalize(embedding_expanded, dim=-1)
+                attention_norm = F.normalize(attention_flat, dim=-1)
+                direct_sim = torch.sum(embedding_norm * attention_norm, dim=-1)  # [1, seq_len]
+                
+                # Combine cross-attention and direct similarity
+                similarity = 0.8 * similarity + 0.2 * direct_sim
+                
                 logger.info(f"Similarity after computation: {similarity.shape}")
+                logger.info(f"Similarity range: [{similarity.min():.4f}, {similarity.max():.4f}]")
                 
                 # Reshape to spatial format [1, spatial_h, spatial_w]
                 spatial_size = int(np.sqrt(seq_len))
@@ -810,18 +861,27 @@ class ConceptAttentionProcessor:
                             mode='nearest'
                         ).squeeze(0).squeeze(0)
                 
-                # Apply normalization to get concept attention map
-                # Use min-max normalization instead of softmax for better visualization
+                # Apply enhanced normalization for better object detection
                 similarity_flat = similarity.flatten()
-                min_val = similarity_flat.min()
-                max_val = similarity_flat.max()
                 
-                if max_val > min_val:
-                    concept_map = (similarity_flat - min_val) / (max_val - min_val)
+                # Use percentile-based normalization for better contrast
+                p95 = torch.quantile(similarity_flat, 0.95)
+                p5 = torch.quantile(similarity_flat, 0.05)
+                
+                if p95 > p5:
+                    # Clamp to percentile range and normalize
+                    similarity_clamped = torch.clamp(similarity_flat, p5, p95)
+                    concept_map = (similarity_clamped - p5) / (p95 - p5)
                 else:
                     concept_map = torch.ones_like(similarity_flat)
                 
+                # Apply gamma correction for better visualization
+                gamma = 0.5  # Enhance contrast
+                concept_map = torch.pow(concept_map, gamma)
+                
                 concept_map = concept_map.view(h, w)
+                
+                logger.info(f"Concept map stats - min: {concept_map.min():.4f}, max: {concept_map.max():.4f}, mean: {concept_map.mean():.4f}")
                 
                 # Convert to float32 for ComfyUI compatibility
                 concept_map = concept_map.to(dtype=torch.float32)
