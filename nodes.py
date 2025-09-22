@@ -811,6 +811,9 @@ class ConceptAttentionVisualizerNode:
             # Get color for this concept
             color = self._get_concept_color(concept)
             
+            # Ensure concept_map is on the same device as overlay
+            concept_map = concept_map.to(device=overlay.device)
+            
             # Apply color overlay
             for c in range(3):
                 overlay[0, :, :, c] += concept_map * color[c]
