@@ -433,12 +433,6 @@ class ConceptAttentionProcessor:
                 except Exception as e:
                     logger.warning(f"ModelPatcher analysis failed: {e}")
                     logger.info("Will use mock data as fallback")
-                    
-                    logger.info("Model forward pass completed successfully")
-                    
-                except Exception as e:
-                    logger.warning(f"Model forward pass failed: {e}")
-                    logger.info("Will use mock data as fallback")
             
             # Check if any attention outputs were captured
             if hasattr(self.concept_attention, 'attention_outputs') and self.concept_attention.attention_outputs:
