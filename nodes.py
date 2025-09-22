@@ -69,6 +69,9 @@ class ConceptAttentionNode:
                 image, concept_list, clip, None  # tokenizer will be extracted from clip
             )
             
+            print(f"DEBUG: processor.process_image returned: {type(saliency_maps)}")
+            print(f"DEBUG: saliency_maps keys: {list(saliency_maps.keys()) if saliency_maps else 'None'}")
+            
             # Convert to ComfyUI format
             concept_maps = self._convert_to_comfyui_format(saliency_maps)
             
@@ -83,7 +86,9 @@ class ConceptAttentionNode:
             return (concept_maps, visualized_image)
             
         except Exception as e:
+            import traceback
             print(f"Error in ConceptAttention: {e}")
+            print(f"Full traceback: {traceback.format_exc()}")
             # Return empty results on error
             empty_maps = {}
             return (empty_maps, image)
@@ -114,8 +119,15 @@ class ConceptAttentionNode:
             def items(self):
                 return self.maps.items()
         
-        concept_maps_obj = ConceptMaps(saliency_maps)
+        if not saliency_maps:
+            print("WARNING: saliency_maps is empty, returning empty ConceptMaps")
+            concept_maps_obj = ConceptMaps({})
+        else:
+            concept_maps_obj = ConceptMaps(saliency_maps)
+        
         print(f"DEBUG: Converted concept_maps with keys: {list(concept_maps_obj.keys())}")
+        print(f"DEBUG: ConceptMaps object type: {type(concept_maps_obj)}")
+        print(f"DEBUG: ConceptMaps.maps type: {type(concept_maps_obj.maps)}")
         return concept_maps_obj
     
     def _create_simple_visualization(self, saliency_maps, original_image):
@@ -259,7 +271,10 @@ class ConceptSaliencyMapNode:
         print(f"DEBUG: looking for concept: {concept_name}")
         
         # Handle different concept_maps formats
-        if hasattr(concept_maps, 'maps'):
+        if concept_maps is None:
+            print("ERROR: concept_maps is None!")
+            raise ValueError("concept_maps is None - ConceptAttentionNode may have failed")
+        elif hasattr(concept_maps, 'maps'):
             # Custom ConceptMaps object
             actual_maps = concept_maps.maps
             print(f"DEBUG: Using ConceptMaps object with keys: {list(actual_maps.keys())}")
