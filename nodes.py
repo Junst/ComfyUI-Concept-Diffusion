@@ -269,7 +269,7 @@ class ConceptSaliencyMapNode:
         Extract a specific concept saliency map and convert to mask.
         """
         print(f"DEBUG: concept_maps type: {type(concept_maps)}")
-        print(f"DEBUG: concept_maps keys: {list(concept_maps.keys()) if concept_maps else 'None'}")
+        print(f"DEBUG: concept_maps keys: {concept_maps.keys if concept_maps else 'None'}")
         print(f"DEBUG: looking for concept: {concept_name}")
         
         # Handle different concept_maps formats
@@ -341,7 +341,7 @@ class ConceptSegmentationNode:
         Perform zero-shot semantic segmentation using concept attention maps.
         """
         print(f"DEBUG: Segmentation - concept_maps type: {type(concept_maps)}")
-        print(f"DEBUG: Segmentation - concept_maps keys: {list(concept_maps.keys()) if concept_maps else 'None'}")
+        print(f"DEBUG: Segmentation - concept_maps keys: {concept_maps.keys if concept_maps else 'None'}")
         
         # Handle different concept_maps formats
         if hasattr(concept_maps, 'maps'):
@@ -574,7 +574,7 @@ class ConceptAttentionVisualizerNode:
         """
         Visualize concept attention maps overlaid on the original image.
         """
-        print(f"DEBUG: Visualizer - concept_maps keys: {list(concept_maps.keys()) if concept_maps else 'None'}")
+        print(f"DEBUG: Visualizer - concept_maps keys: {concept_maps.keys if concept_maps else 'None'}")
         
         # Create visualization
         visualized = image.clone()
@@ -740,7 +740,7 @@ class ConceptAttentionVisualizerNode:
         Create attention overlay visualization
         """
         print(f"DEBUG: Visualizer - concept_maps type: {type(concept_maps)}")
-        print(f"DEBUG: Visualizer - concept_maps keys: {list(concept_maps.keys()) if concept_maps else 'None'}")
+        print(f"DEBUG: Visualizer - concept_maps keys: {concept_maps.keys if concept_maps else 'None'}")
         
         # Handle different concept_maps formats
         if hasattr(concept_maps, 'maps'):
