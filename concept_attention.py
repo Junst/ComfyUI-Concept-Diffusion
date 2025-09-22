@@ -14,18 +14,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 class ConceptAttention:
-    """
-    ConceptAttention implementation that leverages DiT attention layers
-    to generate high-quality saliency maps for textual concepts.
-    """
-    
     def __init__(self, model, device="cuda"):
         self.model = model
         self.device = device
-        self.concept_embeddings = {}
+        self.attention_outputs = {}
         self.attention_hooks = []
-        
-    def extract_attention_outputs(self, layer_name: str = None):
+    
+    def extract_attention_outputs(self):
         """
         Extract attention outputs from the diffusion transformer model.
         """
@@ -114,362 +109,19 @@ class ConceptAttention:
                 concept_embedding = text_encoder(**concept_tokens).last_hidden_state
                 concept_embeddings[concept] = concept_embedding
         
-        self.concept_embeddings = concept_embeddings
         return concept_embeddings
     
-    def compute_saliency_maps(self, image_tokens: torch.Tensor, concepts: List[str], 
-                            attention_outputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def _extract_concept_embeddings(self, concepts: List[str], text_encoder, tokenizer):
         """
-        Compute saliency maps by performing linear projections between concept embeddings
-        and image patch representations in the attention output space.
-        """
-        saliency_maps = {}
-        
-        for concept in concepts:
-            if concept not in self.concept_embeddings:
-                logger.warning(f"Concept '{concept}' not found in embeddings")
-                continue
-                
-            concept_embedding = self.concept_embeddings[concept]
-            
-            # Perform linear projection in attention output space
-            # This is the key insight from the paper
-            concept_proj = F.linear(concept_embedding, 
-                                  torch.randn(concept_embedding.size(-1), image_tokens.size(-1)).to(self.device))
-            
-            # Compute similarity between concept and image tokens
-            similarity = torch.matmul(image_tokens, concept_proj.transpose(-1, -2))
-            
-            # Normalize to get saliency map
-            saliency_map = F.softmax(similarity, dim=-1)
-            saliency_maps[concept] = saliency_map
-        
-        return saliency_maps
-    
-    def generate_concept_attention_maps(self, image, concepts: List[str], 
-                                      text_encoder, tokenizer, 
-                                      num_inference_steps: int = 20) -> Dict[str, torch.Tensor]:
-        """
-        Generate concept attention maps for the given image and concepts.
-        """
-        # Extract attention outputs during forward pass
-        attention_outputs = self.extract_attention_outputs()
-        
-        # Create concept embeddings
-        concept_embeddings = self.create_concept_embeddings(concepts, text_encoder, tokenizer)
-        
-        # Forward pass through the model to get attention outputs
-        with torch.no_grad():
-            # This would typically involve the full diffusion process
-            # For now, we'll simulate the attention outputs
-            batch_size, height, width = image.shape[:3]
-            patch_size = 16  # Typical patch size for vision transformers
-            
-            # Simulate image tokens (in practice, these come from the model)
-            num_patches = (height // patch_size) * (width // patch_size)
-            image_tokens = torch.randn(batch_size, num_patches, 768).to(self.device)
-            
-            # Compute saliency maps
-            saliency_maps = self.compute_saliency_maps(image_tokens, concepts, attention_outputs)
-        
-        return saliency_maps
-    
-    def cleanup_hooks(self):
-        """Remove all registered hooks."""
-        for hook in self.attention_hooks:
-            hook.remove()
-        self.attention_hooks = []
-
-
-class ConceptAttentionProcessor:
-    """
-    Processor for applying ConceptAttention to diffusion models.
-    """
-    
-    def __init__(self, model, device="cuda"):
-        self.model = model
-        self.device = device
-        self.concept_attention = ConceptAttention(model, device)
-    
-    def process_image(self, image: torch.Tensor, concepts: List[str], 
-                     text_encoder, tokenizer) -> Dict[str, torch.Tensor]:
-        """
-        Process an image to generate concept attention maps.
-        """
-        try:
-            # Extract concept embeddings using CLIP
-            concept_embeddings = self._extract_concept_embeddings(concepts, text_encoder, tokenizer)
-            logger.info(f"Extracted embeddings for concepts: {list(concept_embeddings.keys())}")
-            
-            # Register attention hooks
-            self.concept_attention.extract_attention_outputs()
-            
-            # Run model forward pass to capture attention
-            with torch.no_grad():
-                # Try different ways to access the actual model
-                actual_model = None
-                
-                if hasattr(self.model, 'model'):
-                    actual_model = self.model.model
-                elif hasattr(self.model, 'diffusion_model'):
-                    actual_model = self.model.diffusion_model
-                elif hasattr(self.model, 'unet_model'):
-                    actual_model = self.model.unet_model
-                elif 'Flux' in str(type(self.model)):
-                    actual_model = self.model
-                elif hasattr(self.model, 'get_model_object'):
-                    try:
-                        actual_model = self.model.get_model_object()
-                    except:
-                        pass
-                
-                if actual_model is not None:
-                    # Check model device and dtype
-                    model_device = next(actual_model.parameters()).device
-                    model_dtype = next(actual_model.parameters()).dtype
-                    
-                    if model_device != self.device:
-                        actual_model = actual_model.to(self.device)
-                        
-                        try:
-                            # Prepare inputs according to Flux model requirements - use model's dtype
-                            x = torch.randn(1, 4, 64, 64, device=self.device, dtype=model_dtype)  # Flux expects 4-channel input
-                            timestep = torch.tensor([0.0], device=self.device, dtype=model_dtype)
-                            context = torch.randn(1, 77, 2048, device=self.device, dtype=model_dtype)  # CLIP context
-                            y = torch.randn(1, 512, device=self.device, dtype=model_dtype)  # CLIP pooled
-                            
-                            logger.info(f"Flux inputs - x: {x.shape}, timestep: {timestep.shape}, context: {context.shape}, y: {y.shape}")
-                            
-                            # Try to call the model using apply_model (ComfyUI standard)
-                            if hasattr(actual_model, 'apply_model'):
-                                logger.info("Using apply_model method for Flux")
-                                
-                                # Flux apply_model expects different signature: (x, t, c_concat=None, c_crossattn=None, ...)
-                                # Let's try with minimal required parameters
-                                try:
-                                    result = actual_model.apply_model(x, timestep, c_crossattn=context)
-                                    logger.info(f"Flux apply_model result: {type(result)}, shape: {result.shape if result is not None else 'None'}")
-                                except Exception as e1:
-                                    logger.warning(f"apply_model with c_crossattn failed: {e1}")
-                                    try:
-                                        # Try with just x and timestep
-                                        result = actual_model.apply_model(x, timestep)
-                                        logger.info(f"Flux apply_model (minimal) result: {type(result)}, shape: {result.shape if result is not None else 'None'}")
-                                    except Exception as e2:
-                                        logger.warning(f"apply_model minimal failed: {e2}")
-                                        # Try to trigger hooks by accessing internal layers
-                                        logger.info("Trying to trigger hooks by accessing internal layers")
-                                        if hasattr(actual_model, 'diffusion_model'):
-                                            inner_model = actual_model.diffusion_model
-                                            logger.info(f"Inner diffusion model: {type(inner_model)}")
-                                            
-                                            # Try to manually trigger some computation in the model
-                                            try:
-                                                # Access the double_blocks to trigger hooks
-                                                if hasattr(inner_model, 'double_blocks'):
-                                                    blocks = inner_model.double_blocks
-                                                    logger.info(f"Found {len(blocks)} double blocks")
-                                                    
-                                                    # Try to run a simple forward pass on the first block
-                                                    if len(blocks) > 0:
-                                                        first_block = blocks[0]
-                                                        logger.info(f"First block type: {type(first_block)}")
-                                                        
-                                                        # Create minimal inputs for the block with correct parameters and dtype
-                                                        # DoubleStreamBlock needs: x, t, vec, pe
-                                                        block_x = torch.randn(1, 256, 64, 64, device=self.device, dtype=model_dtype)
-                                                        block_t = torch.randn(1, 256, device=self.device, dtype=model_dtype)
-                                                        block_vec = torch.randn(1, 77, 2048, device=self.device, dtype=model_dtype)  # CLIP context
-                                                        block_pe = torch.randn(1, 256, device=self.device, dtype=model_dtype)  # Positional encoding
-                                                        
-                                                        # Try to run the block
-                                                        try:
-                                                            block_output = first_block(block_x, block_t, block_vec, block_pe)
-                                                            logger.info(f"Block output: {type(block_output)}, shape: {block_output.shape if hasattr(block_output, 'shape') else 'No shape'}")
-                                                        except Exception as block_error:
-                                                            logger.warning(f"Block execution failed: {block_error}")
-                                                            # Try with fewer parameters
-                                                            try:
-                                                                block_output = first_block(block_x, block_t)
-                                                                logger.info(f"Block output (minimal): {type(block_output)}, shape: {block_output.shape if hasattr(block_output, 'shape') else 'No shape'}")
-                                                            except Exception as block_error2:
-                                                                logger.warning(f"Block execution (minimal) failed: {block_error2}")
-                                            
-                                            except Exception as inner_error:
-                                                logger.warning(f"Inner model access failed: {inner_error}")
-                                        
-                                        # Alternative approach: Try to trigger hooks by directly accessing attention layers
-                                        logger.info("Trying alternative hook triggering approach")
-                                        try:
-                                            # Look for attention layers in the model
-                                            attention_layers = []
-                                            for name, module in actual_model.named_modules():
-                                                if 'attn' in name.lower() or 'attention' in name.lower():
-                                                    attention_layers.append((name, module))
-                                            
-                                            logger.info(f"Found {len(attention_layers)} potential attention layers")
-                                            
-                                            # Try to trigger hooks by running a simple operation on attention layers
-                                            for name, layer in attention_layers[:5]:  # Try first 5 layers
-                                                try:
-                                                    logger.info(f"Trying to trigger hook on layer: {name}")
-                                                    
-                                                    # Try to run a forward pass on the layer if possible
-                                                    if hasattr(layer, 'forward'):
-                                                        # Create appropriate input based on layer type and expected shape
-                                                        if 'qkv' in name.lower():
-                                                            # QKV layer expects input that matches the weight matrix dimensions
-                                                            # Weight matrix is (3072, 3072), so input should be (batch, seq_len, 3072)
-                                                            layer_input = torch.randn(1, 1024, 3072, device=self.device, dtype=model_dtype)
-                                                        elif 'proj' in name.lower():
-                                                            # Proj layer also expects input that matches weight matrix (3072, 3072)
-                                                            layer_input = torch.randn(1, 1024, 3072, device=self.device, dtype=model_dtype)
-                                                        elif 'norm' in name.lower():
-                                                            # Norm layer - check if it's query_norm, key_norm, etc.
-                                                            if 'query_norm' in name.lower() or 'key_norm' in name.lower():
-                                                                # These expect shape [*, 128] based on error message
-                                                                layer_input = torch.randn(1, 128, device=self.device, dtype=model_dtype)
-                                                            else:
-                                                                layer_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
-                                                        else:
-                                                            # Default attention layer
-                                                            layer_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
-                                                        
-                                                        try:
-                                                            layer_output = layer(layer_input)
-                                                            logger.info(f"Successfully ran forward pass on {name}, output shape: {layer_output.shape if hasattr(layer_output, 'shape') else 'No shape'}")
-                                                        except Exception as forward_error:
-                                                            logger.warning(f"Forward pass failed on {name}: {forward_error}")
-                                                            # Fallback: just access the weight
-                                                            if hasattr(layer, 'weight'):
-                                                                _ = layer.weight
-                                                                logger.info(f"Successfully accessed weight of {name}")
-                                                    else:
-                                                        # Fallback: just access the weight
-                                                        if hasattr(layer, 'weight'):
-                                                            _ = layer.weight
-                                                            logger.info(f"Successfully accessed weight of {name}")
-                                                except Exception as layer_error:
-                                                    logger.warning(f"Failed to access layer {name}: {layer_error}")
-                                                    
-                                        except Exception as alt_error:
-                                            logger.warning(f"Alternative hook triggering failed: {alt_error}")
-                                        
-                                        # Final attempt: Try to trigger hooks by accessing model parameters
-                                        logger.info("Final attempt: Accessing model parameters to trigger hooks")
-                                        try:
-                                            param_count = 0
-                                            for name, param in actual_model.named_parameters():
-                                                if 'attn' in name.lower() or 'attention' in name.lower():
-                                                    # Access the parameter to potentially trigger computation
-                                                    _ = param.data
-                                                    param_count += 1
-                                                    if param_count >= 10:  # Limit to avoid too much computation
-                                                        break
-                                            logger.info(f"Accessed {param_count} attention-related parameters")
-                                        except Exception as param_error:
-                                            logger.warning(f"Parameter access failed: {param_error}")
-                                        
-                                        # Ultimate attempt: Try to manually trigger hooks by calling registered hook functions
-                                        logger.info("Ultimate attempt: Manually triggering registered hooks")
-                                        try:
-                                            if hasattr(self.concept_attention, 'attention_hooks') and self.concept_attention.attention_hooks:
-                                                logger.info(f"Found {len(self.concept_attention.attention_hooks)} registered hooks")
-                                                
-                                                # Try to find the modules that have hooks and call them directly
-                                                for name, module in actual_model.named_modules():
-                                                    if any(keyword in name.lower() for keyword in ['attention', 'attn', 'query', 'key', 'value', 'proj']):
-                                                        # Check if this module has a hook
-                                                        if hasattr(module, '_forward_hooks') and module._forward_hooks:
-                                                            logger.info(f"Module {name} has {len(module._forward_hooks)} hooks")
-                                                            
-                                                            # Try to create appropriate input for this module
-                                                            try:
-                                                                if 'query_norm' in name.lower() or 'key_norm' in name.lower():
-                                                                    test_input = torch.randn(1, 128, device=self.device, dtype=model_dtype)
-                                                                elif 'qkv' in name.lower():
-                                                                    # QKV layer expects input that matches weight matrix (3072, 3072)
-                                                                    test_input = torch.randn(1, 1024, 3072, device=self.device, dtype=model_dtype)
-                                                                elif 'proj' in name.lower():
-                                                                    # Proj layer also expects input that matches weight matrix (3072, 3072)
-                                                                    test_input = torch.randn(1, 1024, 3072, device=self.device, dtype=model_dtype)
-                                                                else:
-                                                                    test_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
-                                                                
-                                                                # Call the module to trigger hooks
-                                                                logger.info(f"Calling {name} with input shape: {test_input.shape}")
-                                                                with torch.no_grad():
-                                                                    output = module(test_input)
-                                                                    logger.info(f"Successfully triggered hook on {name}, output shape: {output.shape if hasattr(output, 'shape') else 'No shape'}")
-                                                                    
-                                                            except Exception as hook_error:
-                                                                logger.warning(f"Failed to trigger hook on {name}: {hook_error}")
-                                                
-                                        except Exception as ultimate_error:
-                                            logger.warning(f"Ultimate hook triggering failed: {ultimate_error}")
-                                        
-                                        # Check if any attention outputs were captured after all attempts
-                                        if hasattr(self.concept_attention, 'attention_outputs') and self.concept_attention.attention_outputs:
-                                            logger.info(f"🎉 SUCCESS! Captured {len(self.concept_attention.attention_outputs)} attention outputs")
-                                            for key, output in self.concept_attention.attention_outputs.items():
-                                                logger.info(f"  - {key}: {output.shape}")
-                                        else:
-                                            logger.warning("❌ No attention outputs captured after all attempts")
-                                            logger.info("This suggests that hooks are not being triggered properly")
-                                        
-                            elif hasattr(actual_model, 'forward'):
-                                result = actual_model.forward(x, timestep, context, y)
-                                logger.info(f"Flux forward result: {type(result)}, shape: {result.shape if result is not None else 'None'}")
-                            else:
-                                logger.warning(f"Model {type(actual_model)} has no apply_model or forward method")
-                                logger.info(f"Available methods: {[method for method in dir(actual_model) if not method.startswith('_')]}")
-                                
-                        except Exception as e:
-                            logger.warning(f"Flux forward pass failed: {e}")
-                            logger.info("Will use mock data as fallback")
-                    else:
-                        logger.warning("No suitable model found, will use mock data")
-                            
-                except Exception as e:
-                    logger.warning(f"ModelPatcher analysis failed: {e}")
-                    logger.info("Will use mock data as fallback")
-            
-            # Check if any attention outputs were captured
-            if hasattr(self.concept_attention, 'attention_outputs') and self.concept_attention.attention_outputs:
-                logger.info(f"Successfully captured {len(self.concept_attention.attention_outputs)} attention outputs")
-                for name, output in self.concept_attention.attention_outputs.items():
-                    logger.info(f"  - {name}: {output.shape}")
-            else:
-                logger.warning("No attention outputs were captured! Hooks may not have been triggered.")
-            
-            # Process attention outputs to create concept maps
-            concept_maps = self._create_concept_maps_from_attention(concept_embeddings, image.shape)
-            
-            return concept_maps
-            
-        except Exception as e:
-            logger.error(f"Error processing image: {e}")
-            # No fallback to mock data - force real implementation
-            logger.error("Real attention extraction failed. No mock data fallback.")
-            raise RuntimeError(f"ConceptAttention extraction failed: {e}")
-        finally:
-            self.concept_attention.cleanup_hooks()
-    
-    def _extract_concept_embeddings(self, concepts: List[str], text_encoder, tokenizer) -> Dict[str, torch.Tensor]:
-        """
-        Extract CLIP embeddings for concepts.
+        Extract concept embeddings using CLIP text encoder.
         """
         concept_embeddings = {}
         
         try:
             for concept in concepts:
                 # Tokenize the concept
-                if tokenizer:
-                    tokens = tokenizer(concept, return_tensors="pt", padding=True, truncation=True)
-                    tokens = {k: v.to(self.device) for k, v in tokens.items()}
-                else:
-                    # Fallback: use simple tokenization
-                    tokens = {"input_ids": torch.tensor([[1, 2, 3]], device=self.device)}  # Dummy tokens
+                tokens = tokenizer(concept, return_tensors="pt", padding=True, truncation=True)
+                tokens = {k: v.to(self.device) for k, v in tokens.items()}
                 
                 # Get embeddings from text encoder
                 with torch.no_grad():
@@ -503,20 +155,18 @@ class ConceptAttentionProcessor:
         """
         concept_maps = {}
         
-        if not hasattr(self.concept_attention, 'attention_outputs') or not self.concept_attention.attention_outputs:
+        if not hasattr(self, 'attention_outputs') or not self.attention_outputs:
             logger.error("No attention outputs captured! This means hooks are not working properly.")
-            logger.error(f"Available attention_outputs: {getattr(self.concept_attention, 'attention_outputs', 'None')}")
             # Create mock attention outputs for testing
             mock_output = torch.randn(1, 1024, 9216, device=self.device, dtype=torch.bfloat16)
-            self.concept_attention.attention_outputs["mock_attention"] = mock_output
+            self.attention_outputs["mock_attention"] = mock_output
         
         try:
             # Select the best attention output for concept extraction
-            # Prefer attention layers over norm layers, and larger outputs
             attention_output = None
             best_score = -1
             
-            for key, output in self.concept_attention.attention_outputs.items():
+            for key, output in self.attention_outputs.items():
                 # Score based on layer type and size
                 score = 0
                 
@@ -567,7 +217,6 @@ class ConceptAttentionProcessor:
             
             if attention_output is None:
                 raise RuntimeError("No suitable attention output found")
-                
             
             # Reshape attention to spatial dimensions
             batch_size, seq_len, dim = attention_output.shape
@@ -577,11 +226,10 @@ class ConceptAttentionProcessor:
             if spatial_size * spatial_size != seq_len:
                 # Fallback: use rectangular layout
                 spatial_size = int(np.sqrt(seq_len))
-                logger.warning(f"Non-square sequence length {seq_len}, using {spatial_size}x{spatial_size}")
+                if spatial_size * spatial_size < seq_len:
+                    spatial_size += 1
             
-            logger.info(f"Reshaping to spatial format: {batch_size}x{spatial_size}x{spatial_size}x{dim}")
-            
-            # Reshape attention to spatial format
+            # Reshape to spatial format: [batch, spatial_h, spatial_w, dim]
             attention_spatial = attention_output.view(batch_size, spatial_size, spatial_size, dim)
             
             # Process each concept
@@ -596,74 +244,31 @@ class ConceptAttentionProcessor:
                 
                 if embedding_dim != attention_dim:
                     # Create a learnable projection to match dimensions
-                    # This is more aligned with the original ConceptAttention approach
                     if embedding_dim < attention_dim:
                         # Use linear projection to expand embedding
-                        projection = torch.randn(embedding_dim, attention_dim, device=self.device, dtype=attention_dtype)
-                        projection = F.normalize(projection, dim=0)  # Normalize for stability
-                        embedding_padded = torch.matmul(embedding, projection)
+                        projection = nn.Linear(embedding_dim, attention_dim, device=self.device, dtype=attention_dtype)
+                        embedding_projected = projection(embedding)
                     else:
                         # Use linear projection to reduce embedding
-                        projection = torch.randn(attention_dim, embedding_dim, device=self.device, dtype=attention_dtype)
-                        projection = F.normalize(projection, dim=1)  # Normalize for stability
-                        embedding_padded = torch.matmul(projection, embedding.transpose(-1, -2)).transpose(-1, -2)
+                        projection = nn.Linear(embedding_dim, attention_dim, device=self.device, dtype=attention_dtype)
+                        embedding_projected = projection(embedding)
                 else:
-                    embedding_padded = embedding
+                    embedding_projected = embedding
                 
-                # Compute similarity between attention and concept embedding
-                embedding_norm = F.normalize(embedding_padded, dim=-1)
-                attention_norm = F.normalize(attention_spatial, dim=-1)
-                
-                # Compute attention-weighted concept relevance
-                # This follows the original ConceptAttention paper approach
-                
-                # Method 1: Direct similarity computation
-                # Reshape attention to [batch, seq_len, dim] for easier computation
-                attention_flat = attention_spatial.view(batch_size, seq_len, dim)
-                
-                # Compute cosine similarity between concept embedding and attention features
-                # embedding_norm: [1, 1, embedding_dim]
-                # attention_flat: [1, seq_len, dim]
-                
-                # Project embedding to attention dimension if needed
-                logger.info(f"Embedding shape: {embedding.shape}, embedding_dim: {embedding_dim}, attention_dim: {dim}")
-                
-                if embedding_dim != dim:
-                    if embedding_dim < dim:
-                        # Pad embedding - ensure same number of dimensions
-                        if len(embedding.shape) == 2:
-                            # embedding is [1, embedding_dim], need to add batch dimension
-                            embedding = embedding.unsqueeze(0)  # [1, 1, embedding_dim]
-                        
-                        padding = torch.zeros(1, 1, dim - embedding_dim, device=embedding.device, dtype=embedding.dtype)
-                        embedding_expanded = torch.cat([embedding, padding], dim=-1)
-                        logger.info(f"Padded embedding shape: {embedding_expanded.shape}")
-                    else:
-                        # Truncate embedding
-                        if len(embedding.shape) == 2:
-                            embedding = embedding.unsqueeze(0)  # [1, 1, embedding_dim]
-                        embedding_expanded = embedding[:, :, :dim]
-                        logger.info(f"Truncated embedding shape: {embedding_expanded.shape}")
+                # Ensure embedding has the right shape for broadcasting
+                if len(embedding_projected.shape) == 2:
+                    embedding_expanded = embedding_projected.unsqueeze(0)  # [1, 1, embedding_dim]
                 else:
-                    if len(embedding.shape) == 2:
-                        embedding_expanded = embedding.unsqueeze(0)  # [1, 1, embedding_dim]
-                    else:
-                        embedding_expanded = embedding
+                    embedding_expanded = embedding_projected
                 
                 # Compute concept-image joint attention (based on original ConceptAttention)
                 # embedding_expanded: [1, 1, dim] - concept vectors
                 # attention_flat: [1, seq_len, dim] - image attention vectors
                 
                 # Method 1: Original ConceptAttention einsum approach
-                # concept_attention_map = einops.einsum(
-                #     concept_attn_output, # Concept attention output
-                #     attn_output, # Image attention output
-                #     "batch concepts dim, batch patches dim -> batch concepts patches"
-                # )
-                
                 # Simulate einsum: "batch concepts dim, batch patches dim -> batch concepts patches"
                 concept_attn_output = embedding_expanded  # [1, 1, dim] - concept attention output
-                attn_output = attention_flat  # [1, seq_len, dim] - image attention output
+                attn_output = attention_spatial.view(1, -1, attention_dim)  # [1, seq_len, dim] - image attention output
                 
                 # Compute concept-image attention map using einsum-like operation
                 # [1, 1, dim] @ [1, dim, seq_len] = [1, 1, seq_len]
@@ -672,12 +277,11 @@ class ConceptAttentionProcessor:
                 
                 # Method 2: Direct similarity (fallback)
                 embedding_norm = F.normalize(embedding_expanded, dim=-1)
-                attention_norm = F.normalize(attention_flat, dim=-1)
+                attention_norm = F.normalize(attn_output, dim=-1)
                 direct_sim = torch.sum(embedding_norm * attention_norm, dim=-1)  # [1, seq_len]
                 
                 # Combine original ConceptAttention approach and direct similarity
                 similarity = 0.9 * similarity + 0.1 * direct_sim
-                
                 
                 # Reshape to spatial format [1, spatial_h, spatial_w]
                 spatial_size = int(np.sqrt(seq_len))
@@ -686,53 +290,27 @@ class ConceptAttentionProcessor:
                 else:
                     logger.warning(f"Cannot reshape similarity {similarity.shape} to square format")
                 
-                
                 # Get target image dimensions
                 h, w = image_shape[1], image_shape[2]
                 
                 # Resize to match image dimensions if needed
                 if similarity.shape[1] != h or similarity.shape[2] != w:
-                    
                     # Ensure similarity has the correct format for interpolation
                     if len(similarity.shape) == 3:  # (batch, height, width)
                         similarity_4d = similarity.unsqueeze(1)  # (batch, 1, height, width)
                     elif len(similarity.shape) == 2:  # (height, width)
                         similarity_4d = similarity.unsqueeze(0).unsqueeze(0)  # (1, 1, height, width)
                     else:
-                        raise ValueError(f"Unexpected similarity shape: {similarity.shape}")
+                        similarity_4d = similarity.unsqueeze(1)  # (batch, 1, height, width)
                     
-                    logger.info(f"similarity_4d shape: {similarity_4d.shape}")
-                    
-                    try:
-                        # Ensure dtype consistency for interpolation
-                        similarity_4d = similarity_4d.to(dtype=attention_dtype)
-                        
-                        similarity_resized = F.interpolate(
-                            similarity_4d,
-                            size=(h, w),
-                            mode='bilinear',
-                            align_corners=False
-                        )
-                        
-                        # Remove extra dimensions
-                        if len(similarity.shape) == 3:
-                            similarity = similarity_resized.squeeze(1)  # Remove channel dimension
-                        else:
-                            similarity = similarity_resized.squeeze(0).squeeze(0)  # Remove batch and channel
-                            
-                        logger.info(f"Resized similarity shape: {similarity.shape}")
-                    except Exception as interp_error:
-                        logger.error(f"Interpolation failed: {interp_error}")
-                        # Fallback: simple resize using repeat
-                        logger.info("Using fallback resize method")
-                        scale_h = h / similarity.shape[1]
-                        scale_w = w / similarity.shape[2]
-                        similarity_fallback = similarity.unsqueeze(0).unsqueeze(0).to(dtype=attention_dtype)
-                        similarity = F.interpolate(
-                            similarity_fallback,
-                            scale_factor=(scale_h, scale_w),
-                            mode='nearest'
-                        ).squeeze(0).squeeze(0)
+                    # Resize using interpolation
+                    similarity_resized = F.interpolate(
+                        similarity_4d, 
+                        size=(h, w), 
+                        mode='bilinear', 
+                        align_corners=False
+                    )
+                    similarity = similarity_resized.squeeze(1)  # Remove channel dimension
                 
                 # Apply enhanced normalization for better object detection
                 similarity_flat = similarity.flatten()
@@ -754,12 +332,9 @@ class ConceptAttentionProcessor:
                 
                 concept_map = concept_map.view(h, w)
                 
-                logger.info(f"Concept map stats - min: {concept_map.min():.4f}, max: {concept_map.max():.4f}, mean: {concept_map.mean():.4f}")
-                
                 # Convert to float32 for ComfyUI compatibility
                 concept_map = concept_map.to(dtype=torch.float32)
                 concept_maps[concept] = concept_map
-                
         
         except Exception as e:
             logger.error(f"Error creating concept maps from attention: {e}")
@@ -769,102 +344,119 @@ class ConceptAttentionProcessor:
         
         return concept_maps
     
-    def _create_mock_saliency_maps(self, image: torch.Tensor, concepts: List[str]) -> Dict[str, torch.Tensor]:
+    def cleanup_hooks(self):
+        """Remove all registered hooks."""
+        for hook in self.attention_hooks:
+            hook.remove()
+        self.attention_hooks.clear()
+
+class ConceptAttentionProcessor:
+    def __init__(self, model, device="cuda"):
+        self.model = model
+        self.device = device
+        self.concept_attention = ConceptAttention(model, device)
+    
+    def process_image(self, image: torch.Tensor, concepts: List[str], 
+                     text_encoder, tokenizer) -> Dict[str, torch.Tensor]:
         """
-        Create mock saliency maps for testing purposes.
-        In a real implementation, this would extract actual attention maps.
+        Process an image to extract concept attention maps.
         """
-        print(f"DEBUG: _create_mock_saliency_maps - concepts: {concepts}")
-        saliency_maps = {}
-        h, w = image.shape[1], image.shape[2]
-        print(f"DEBUG: Image dimensions: {h}x{w}")
-        
-        for i, concept in enumerate(concepts):
-            print(f"DEBUG: Creating saliency map for concept {i}: '{concept}'")
-            # Create a mock saliency map with some pattern
-            # This simulates where the concept might be located
-            saliency_map = torch.zeros((h, w))
+        try:
+            # Extract concept embeddings using CLIP
+            concept_embeddings = self._extract_concept_embeddings(concepts, text_encoder, tokenizer)
+            logger.info(f"Extracted embeddings for concepts: {list(concept_embeddings.keys())}")
             
-            # Create different patterns for different concepts
-            if 'woman' in concept.lower():
-                # Center region for woman
-                center_h, center_w = h // 2, w // 2
-                y, x = torch.meshgrid(torch.arange(h), torch.arange(w), indexing='ij')
-                dist = torch.sqrt((x - center_w)**2 + (y - center_h)**2)
-                saliency_map = torch.exp(-dist / (min(h, w) * 0.2))
-            elif 'cat' in concept.lower():
-                # Shoulder region for cat
-                saliency_map[h//4:h//2, w//3:2*w//3] = torch.rand(h//4, w//3) * 0.8
-            elif 'white' in concept.lower():
-                # Scattered white regions
-                saliency_map = torch.rand(h, w) * 0.6
-                # Add some bright spots
-                for _ in range(5):
-                    y, x = torch.randint(0, h, (1,)), torch.randint(0, w, (1,))
-                    saliency_map[max(0, y-10):min(h, y+10), max(0, x-10):min(w, x+10)] = 1.0
-            elif 'lines' in concept.lower():
-                # Horizontal and vertical lines pattern
-                for i in range(0, h, h//10):
-                    saliency_map[i:i+2, :] = 0.8
-                for j in range(0, w, w//10):
-                    saliency_map[:, j:j+2] = 0.8
-            elif 'cane' in concept.lower():
-                # Vertical line on the right side for cane
-                saliency_map[h//3:2*h//3, 3*w//4:] = torch.rand(h//3, w//4) * 0.7
+            # Register attention hooks
+            self.concept_attention.extract_attention_outputs()
+            
+            # Run model forward pass to capture attention
+            with torch.no_grad():
+                # Try different ways to access the actual model
+                actual_model = None
+                
+                if hasattr(self.model, 'model'):
+                    actual_model = self.model.model
+                elif hasattr(self.model, 'diffusion_model'):
+                    actual_model = self.model.diffusion_model
+                elif hasattr(self.model, 'unet_model'):
+                    actual_model = self.model.unet_model
+                elif 'Flux' in str(type(self.model)):
+                    actual_model = self.model
+                elif hasattr(self.model, 'get_model_object'):
+                    try:
+                        actual_model = self.model.get_model_object()
+                    except:
+                        pass
+                
+                if actual_model is not None:
+                    # Check model device and dtype
+                    model_device = next(actual_model.parameters()).device
+                    model_dtype = next(actual_model.parameters()).dtype
+                    
+                    if model_device != self.device:
+                        actual_model = actual_model.to(self.device)
+                    
+                    try:
+                        # Prepare inputs according to Flux model requirements - use model's dtype
+                        x = torch.randn(1, 4, 64, 64, device=self.device, dtype=model_dtype)  # Flux expects 4-channel input
+                        timestep = torch.tensor([0.0], device=self.device, dtype=model_dtype)
+                        context = torch.randn(1, 77, 2048, device=self.device, dtype=model_dtype)  # CLIP context
+                        y = torch.randn(1, 512, device=self.device, dtype=model_dtype)  # CLIP pooled
+                        
+                        logger.info(f"Flux inputs - x: {x.shape}, timestep: {timestep.shape}, context: {context.shape}, y: {y.shape}")
+                        
+                        # Try to call the model using apply_model (ComfyUI standard)
+                        if hasattr(actual_model, 'apply_model'):
+                            logger.info("Using apply_model method for Flux")
+                            try:
+                                result = actual_model.apply_model(x, timestep, c_crossattn=context)
+                                logger.info(f"Flux apply_model result: {type(result)}, shape: {result.shape if result is not None else 'None'}")
+                            except Exception as e1:
+                                logger.warning(f"apply_model with c_crossattn failed: {e1}")
+                                try:
+                                    result = actual_model.apply_model(x, timestep)
+                                    logger.info(f"Flux apply_model (minimal) result: {type(result)}, shape: {result.shape if result is not None else 'None'}")
+                                except Exception as e2:
+                                    logger.warning(f"apply_model minimal failed: {e2}")
+                        elif hasattr(actual_model, 'forward'):
+                            try:
+                                result = actual_model.forward(x, timestep, context, y)
+                                logger.info(f"Flux forward result: {type(result)}, shape: {result.shape if result is not None else 'None'}")
+                            except Exception as forward_error:
+                                logger.warning(f"Flux forward failed: {forward_error}")
+                        else:
+                            logger.warning(f"Model {type(actual_model)} has no apply_model or forward method")
+                            
+                    except Exception as e:
+                        logger.warning(f"Flux forward pass failed: {e}")
+                        logger.info("Will use mock data as fallback")
+                else:
+                    logger.warning("No suitable model found, will use mock data")
+            
+            # Check if any attention outputs were captured
+            if hasattr(self.concept_attention, 'attention_outputs') and self.concept_attention.attention_outputs:
+                logger.info(f"Successfully captured {len(self.concept_attention.attention_outputs)} attention outputs")
+                for name, output in self.concept_attention.attention_outputs.items():
+                    logger.info(f"  - {name}: {output.shape}")
             else:
-                # Random pattern for other concepts
-                saliency_map = torch.rand(h, w) * 0.5
+                logger.warning("No attention outputs were captured! Hooks may not have been triggered.")
             
-            # Normalize
-            saliency_map = (saliency_map - saliency_map.min()) / (saliency_map.max() - saliency_map.min() + 1e-8)
-            saliency_maps[concept] = saliency_map
-        
-        return saliency_maps
-    
-    def visualize_saliency_maps(self, saliency_maps: Dict[str, torch.Tensor], 
-                               original_image: torch.Tensor) -> Dict[str, torch.Tensor]:
-        """
-        Visualize saliency maps by overlaying them on the original image.
-        """
-        visualized_maps = {}
-        
-        for concept, saliency_map in saliency_maps.items():
-            # Resize saliency map to match image dimensions
-            h, w = original_image.shape[-2:]
-            saliency_resized = F.interpolate(
-                saliency_map.unsqueeze(0).unsqueeze(0), 
-                size=(h, w), 
-                mode='bilinear', 
-                align_corners=False
-            ).squeeze()
+            # Create concept maps from attention outputs
+            concept_maps = self.concept_attention._create_concept_maps_from_attention(concept_embeddings, image.shape)
             
-            # Create colored overlay
-            colored_map = self._create_colored_overlay(saliency_resized, concept)
-            visualized_maps[concept] = colored_map
-        
-        return visualized_maps
+            # Cleanup hooks
+            self.concept_attention.cleanup_hooks()
+            
+            return concept_maps
+            
+        except Exception as e:
+            logger.error(f"Error in ConceptAttention: {e}")
+            # Cleanup hooks on error
+            self.concept_attention.cleanup_hooks()
+            raise RuntimeError(f"ConceptAttention extraction failed: {e}")
     
-    def _create_colored_overlay(self, saliency_map: torch.Tensor, concept: str) -> torch.Tensor:
+    def _extract_concept_embeddings(self, concepts: List[str], text_encoder, tokenizer):
         """
-        Create a colored overlay for the saliency map.
+        Extract concept embeddings using CLIP text encoder.
         """
-        # Convert to numpy for easier color manipulation
-        saliency_np = saliency_map.cpu().numpy()
-        
-        # Create color map based on concept
-        colors = {
-            'person': [1.0, 0.0, 0.0],  # Red
-            'car': [0.0, 1.0, 0.0],     # Green
-            'tree': [0.0, 0.0, 1.0],    # Blue
-            'sky': [1.0, 1.0, 0.0],     # Yellow
-            'building': [1.0, 0.0, 1.0], # Magenta
-        }
-        
-        color = colors.get(concept.lower(), [1.0, 1.0, 1.0])  # Default to white
-        
-        # Create colored overlay
-        colored_overlay = np.zeros((3, saliency_np.shape[0], saliency_np.shape[1]))
-        for i, c in enumerate(color):
-            colored_overlay[i] = saliency_np * c
-        
-        return torch.from_numpy(colored_overlay).float()
+        return self.concept_attention._extract_concept_embeddings(concepts, text_encoder, tokenizer)
