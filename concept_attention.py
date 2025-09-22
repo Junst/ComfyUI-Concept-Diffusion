@@ -699,7 +699,16 @@ class ConceptAttentionProcessor:
                 # This follows the original ConceptAttention paper approach
                 # Project concept embedding to attention space
                 concept_projection = torch.matmul(embedding_norm, attention_norm.transpose(-1, -2))
-                similarity = torch.sum(concept_projection, dim=-1)  # Sum over attention heads
+                
+                # Ensure we maintain spatial dimensions properly
+                if len(concept_projection.shape) == 3:
+                    # concept_projection is [batch, seq_len, attention_dim]
+                    # We want to sum over the attention dimension but keep spatial structure
+                    similarity = torch.sum(concept_projection, dim=-1)  # [batch, seq_len]
+                else:
+                    # Fallback: take mean over last dimension
+                    similarity = torch.mean(concept_projection, dim=-1)
+                
                 logger.info(f"Concept attention similarity shape: {similarity.shape}")
                 
                 # Get target image dimensions

@@ -300,14 +300,27 @@ class ConceptSaliencyMapNode:
         # Convert to mask using threshold
         mask = (saliency_map > threshold).float()
         
-        # Convert to image format (grayscale to RGB)
-        saliency_image = saliency_map.unsqueeze(-1).repeat(1, 1, 3)
+        # Convert to image format with better visualization
+        # Normalize saliency map to [0, 1] for better visualization
+        normalized_map = (saliency_map - saliency_map.min()) / (saliency_map.max() - saliency_map.min() + 1e-8)
+        
+        # Create heatmap visualization (red channel for high values)
+        saliency_image = torch.zeros((saliency_map.shape[0], saliency_map.shape[1], 3))
+        saliency_image[:, :, 0] = normalized_map  # Red channel for saliency
+        saliency_image[:, :, 1] = normalized_map * 0.3  # Green channel (dimmed)
+        saliency_image[:, :, 2] = normalized_map * 0.1  # Blue channel (very dim)
         
         # Ensure proper dimensions for ComfyUI
         if len(mask.shape) == 2:
             mask = mask.unsqueeze(0)
         if len(saliency_image.shape) == 3:
             saliency_image = saliency_image.unsqueeze(0)
+        
+        # Add concept information for debugging
+        print(f"DEBUG: Saliency map created for concept '{concept_name}'")
+        print(f"DEBUG: Saliency map shape: {saliency_image.shape}")
+        print(f"DEBUG: Mask shape: {mask.shape}")
+        print(f"DEBUG: Threshold used: {threshold}")
         
         return (mask, saliency_image)
 
@@ -541,8 +554,28 @@ class ConceptSegmentationNode:
                 if len(mask.shape) == 3:
                     mask = mask.squeeze(0)  # Remove batch dimension
                 
+                # Apply color with better visibility
                 for c in range(3):
-                    colored_image[0, :, :, c] += mask * color[c]
+                    colored_image[0, :, :, c] += mask * color[c] * 0.8  # Reduce intensity for better blending
+                
+                print(f"DEBUG: Applied color {color} to concept '{concept}' with mask shape {mask.shape}")
+        
+        # Clamp values to [0, 1] and add some background
+        colored_image = torch.clamp(colored_image, 0, 1)
+        
+        # Add subtle background for better visibility
+        background = torch.ones_like(colored_image) * 0.1
+        colored_image = torch.max(colored_image, background)
+        
+        # Add concept labels for better identification
+        # This is a simple text overlay simulation using colored regions
+        # In a real implementation, you'd use a text rendering library
+        print(f"DEBUG: Segmentation completed with concepts: {concepts}")
+        print(f"DEBUG: Color mapping:")
+        for i, concept in enumerate(concepts):
+            if concept in colors:
+                color = colors[concept]
+                print(f"  - {concept}: RGB{color}")
         
         return colored_image
 
