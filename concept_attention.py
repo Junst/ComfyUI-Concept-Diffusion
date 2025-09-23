@@ -425,114 +425,67 @@ class ConceptAttentionProcessor:
                     if model_device != self.device:
                         actual_model = actual_model.to(self.device)
                     
-                    try:
-                         # More aggressive hook triggering approach
-                         logger.info("🔍 Attempting aggressive hook triggering")
+                     try:
+                         # Try to run the actual Flux model forward pass to trigger hooks
+                         logger.info("🔍 Attempting to run actual Flux model forward pass")
                          
-                         # Try to find and directly call the diffusion model
-                         diffusion_model = None
+                         # Create proper inputs for Flux model
+                         # Based on ComfyUI's Flux model requirements
+                         x = torch.randn(1, 4, 64, 64, device=self.device, dtype=model_dtype)  # Latent input
+                         timestep = torch.tensor([0.0], device=self.device, dtype=model_dtype)
+                         context = torch.randn(1, 77, 2048, device=self.device, dtype=model_dtype)  # CLIP context
+                         y = torch.randn(1, 512, device=self.device, dtype=model_dtype)  # CLIP pooled
+                         
+                         logger.info(f"Flux inputs - x: {x.shape}, timestep: {timestep.shape}, context: {context.shape}, y: {y.shape}")
+                         
+                         # Try to run the model using apply_model
+                         if hasattr(actual_model, 'apply_model'):
+                             logger.info("Using apply_model method for Flux")
+                             try:
+                                 # Try with minimal parameters first
+                                 result = actual_model.apply_model(x, timestep)
+                                 logger.info(f"Flux apply_model result: {type(result)}, shape: {result.shape if result is not None else 'None'}")
+                             except Exception as e1:
+                                 logger.warning(f"apply_model failed: {e1}")
+                                 try:
+                                     # Try with context
+                                     result = actual_model.apply_model(x, timestep, c_crossattn=context)
+                                     logger.info(f"Flux apply_model with context result: {type(result)}, shape: {result.shape if result is not None else 'None'}")
+                                 except Exception as e2:
+                                     logger.warning(f"apply_model with context failed: {e2}")
+                         
+                         # Also try to run a single block to trigger hooks
                          if hasattr(actual_model, 'diffusion_model'):
                              diffusion_model = actual_model.diffusion_model
-                         elif hasattr(actual_model, 'model') and hasattr(actual_model.model, 'diffusion_model'):
-                             diffusion_model = actual_model.model.diffusion_model
-                         
-                         if diffusion_model is not None:
-                             logger.info(f"Found diffusion model: {type(diffusion_model)}")
-                             
-                             # Try to access double_blocks directly
                              if hasattr(diffusion_model, 'double_blocks'):
                                  double_blocks = diffusion_model.double_blocks
                                  logger.info(f"Found {len(double_blocks)} double blocks")
                                  
-                                 # Try to trigger hooks on specific blocks (15-19 like original ConceptAttention)
-                                 target_blocks = [15, 16, 17, 18, 19] if len(double_blocks) > 19 else list(range(len(double_blocks)))
+                                 # Try to run the last few blocks (15-19 like original ConceptAttention)
+                                 target_blocks = [15, 16, 17, 18, 19] if len(double_blocks) > 19 else list(range(max(0, len(double_blocks)-5), len(double_blocks)))
                                  
                                  for block_idx in target_blocks:
                                      if block_idx < len(double_blocks):
                                          block = double_blocks[block_idx]
-                                         logger.info(f"Attempting to trigger block {block_idx}: {type(block)}")
+                                         logger.info(f"Attempting to run block {block_idx}: {type(block)}")
                                          
                                          try:
-                                             # Try to access the block's attention modules
-                                             if hasattr(block, 'img_attn'):
-                                                 img_attn = block.img_attn
-                                                 logger.info(f"Found img_attn in block {block_idx}: {type(img_attn)}")
-                                                 
-                                                 # Try to trigger the actual attention module (not just qkv/proj)
-                                                 try:
-                                                     # Create appropriate inputs for the attention module
-                                                     # Try different input signatures for SelfAttention
-                                                     test_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
-                                                     test_pe = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
-                                                     
-                                                     with torch.no_grad():
-                                                         # Try different calling patterns
-                                                         try:
-                                                             attn_output = img_attn(test_input, test_pe)
-                                                             logger.info(f"🚀 Successfully triggered img_attn in block {block_idx}, output shape: {attn_output.shape}")
-                                                         except Exception as e1:
-                                                             try:
-                                                                 # Try with just input
-                                                                 attn_output = img_attn(test_input)
-                                                                 logger.info(f"🚀 Successfully triggered img_attn (input only) in block {block_idx}, output shape: {attn_output.shape}")
-                                                             except Exception as e2:
-                                                                 try:
-                                                                     # Try with different input shape
-                                                                     test_input2 = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
-                                                                     attn_output = img_attn(test_input2)
-                                                                     logger.info(f"🚀 Successfully triggered img_attn (alt input) in block {block_idx}, output shape: {attn_output.shape}")
-                                                                 except Exception as e3:
-                                                                     logger.debug(f"All img_attn forward attempts failed in block {block_idx}: {e1}, {e2}, {e3}")
-                                                 except Exception as attn_error:
-                                                     logger.debug(f"Img attention setup failed in block {block_idx}: {attn_error}")
+                                             # Create inputs for the block
+                                             # DoubleStreamBlock needs: img, txt, vec, pe
+                                             block_img = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
+                                             block_txt = torch.randn(1, 77, 256, device=self.device, dtype=model_dtype)
+                                             block_vec = torch.randn(1, 256, device=self.device, dtype=model_dtype)
+                                             block_pe = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
                                              
-                                             if hasattr(block, 'txt_attn'):
-                                                 txt_attn = block.txt_attn
-                                                 logger.info(f"Found txt_attn in block {block_idx}: {type(txt_attn)}")
-                                                 
-                                                 # Try to trigger the actual attention module
-                                                 try:
-                                                     test_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
-                                                     test_pe = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
-                                                     
-                                                     with torch.no_grad():
-                                                         # Try different calling patterns
-                                                         try:
-                                                             attn_output = txt_attn(test_input, test_pe)
-                                                             logger.info(f"🚀 Successfully triggered txt_attn in block {block_idx}, output shape: {attn_output.shape}")
-                                                         except Exception as e1:
-                                                             try:
-                                                                 # Try with just input
-                                                                 attn_output = txt_attn(test_input)
-                                                                 logger.info(f"🚀 Successfully triggered txt_attn (input only) in block {block_idx}, output shape: {attn_output.shape}")
-                                                             except Exception as e2:
-                                                                 try:
-                                                                     # Try with different input shape
-                                                                     test_input2 = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
-                                                                     attn_output = txt_attn(test_input2)
-                                                                     logger.info(f"🚀 Successfully triggered txt_attn (alt input) in block {block_idx}, output shape: {attn_output.shape}")
-                                                                 except Exception as e3:
-                                                                     logger.debug(f"All txt_attn forward attempts failed in block {block_idx}: {e1}, {e2}, {e3}")
-                                                 except Exception as txt_attn_error:
-                                                     logger.debug(f"Txt attention setup failed in block {block_idx}: {txt_attn_error}")
-                                         
+                                             with torch.no_grad():
+                                                 block_output = block(block_img, block_txt, block_vec, block_pe)
+                                                 logger.info(f"🚀 Successfully ran block {block_idx}, output shape: {block_output.shape if hasattr(block_output, 'shape') else 'No shape'}")
                                          except Exception as block_error:
-                                             logger.debug(f"Block {block_idx} access failed: {block_error}")
-                         
-                         # Also try to trigger by accessing model parameters
-                         logger.info("🔍 Attempting to trigger hooks by accessing model parameters")
-                         param_count = 0
-                         for name, param in actual_model.named_parameters():
-                             if any(keyword in name.lower() for keyword in ['attention', 'attn', 'qkv', 'proj']):
-                                 _ = param.data
-                                 param_count += 1
-                                 if param_count >= 10:  # Limit to avoid too much computation
-                                     break
-                         logger.info(f"Accessed {param_count} attention-related parameters")
+                                             logger.debug(f"Block {block_idx} execution failed: {block_error}")
                          
                     except Exception as e:
-                        logger.warning(f"Aggressive hook triggering failed: {e}")
-                        logger.info("Will use mock data as fallback")
+                        logger.warning(f"Flux model forward pass failed: {e}")
+                        logger.info("Hooks may not have been triggered")
                 else:
                     logger.warning("No suitable model found, will use mock data")
             
