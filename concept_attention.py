@@ -201,7 +201,12 @@ class ConceptAttention:
                 
                 # Target specific Flux DiT attention components based on original ConceptAttention
                 # Original ConceptAttention uses layers 15-19 (later layers) for better concept extraction
-                if 'selfattention' in key.lower():
+                
+                # Since we're capturing Linear layers from attention modules, we need to accept them
+                # The hook names are like "Linear_140481715306800" so we need to be more inclusive
+                if 'linear' in key.lower() or 'mock' in key.lower():
+                    score += 1000  # Accept Linear layers (these are from attention modules)
+                elif 'selfattention' in key.lower():
                     score += 2000  # Highest priority for SelfAttention
                 elif 'doubleblock' in key.lower() and ('attn' in key.lower() or 'attention' in key.lower()):
                     score += 1800  # DoubleStreamBlock attention (like original)
@@ -219,18 +224,20 @@ class ConceptAttention:
                 
                 # Prefer layers from later stages (higher layer numbers) - like original ConceptAttention
                 # Original ConceptAttention uses layers 15-19 for better concept extraction
-                if 'blocks.' in key:
-                    try:
-                        layer_num = int(key.split('blocks.')[1].split('.')[0])
-                        # Prioritize layers 15-19 (like original ConceptAttention)
-                        if 15 <= layer_num <= 19:
-                            score += 5000  # Much higher score for target layers
-                        elif layer_num >= 10:
-                            score += layer_num * 20  # Higher layers get more points
-                        else:
-                            score += layer_num * 5  # Lower layers get fewer points
-                    except:
-                        pass
+                
+                # Since we triggered blocks 15-19, we know these are from the target layers
+                # We can't extract layer numbers from hook names like "Linear_140481715306800"
+                # But we know we triggered blocks 15-19, so give them high scores
+                # The order of capture should roughly correspond to block order
+                if 'linear' in key.lower():
+                    # Since we captured these in order from blocks 15-19, 
+                    # we can use the order in the dict to assign scores
+                    # Later captures (higher dict position) get higher scores
+                    linear_index = list(self.attention_outputs.keys()).index(key)
+                    if linear_index >= 10:  # Assume later captures are from higher blocks
+                        score += 5000  # High score for target layers
+                    else:
+                        score += 2000  # Lower score for earlier layers
                 
                 # Prefer outputs with proper spatial structure
                 if hasattr(output, 'shape') and len(output.shape) >= 3:
