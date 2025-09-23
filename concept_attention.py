@@ -186,7 +186,7 @@ class ConceptAttention:
                         idx = y * pattern_size + x
                         # Create a radial pattern with some variation
                         dist = ((y - center_y) ** 2 + (x - center_x) ** 2) ** 0.5
-                        intensity = torch.exp(-dist / (pattern_size * 0.3)) * (0.5 + 0.5 * torch.sin(i * 2 * math.pi / len(concept_embeddings)))
+                        intensity = torch.exp(torch.tensor(-dist / (pattern_size * 0.3), device=self.device, dtype=torch.bfloat16)) * (0.5 + 0.5 * torch.sin(torch.tensor(i * 2 * math.pi / len(concept_embeddings), device=self.device, dtype=torch.bfloat16)))
                         spatial_pattern[0, idx, :] = intensity
                 
                 concept_mock = concept_mock + spatial_pattern * 0.3
@@ -482,15 +482,30 @@ class ConceptAttentionProcessor:
                                                  # Try to trigger the actual attention module (not just qkv/proj)
                                                  try:
                                                      # Create appropriate inputs for the attention module
-                                                     # SelfAttention expects: x, pe (positional encoding)
+                                                     # Try different input signatures for SelfAttention
                                                      test_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
                                                      test_pe = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
                                                      
                                                      with torch.no_grad():
-                                                         attn_output = img_attn(test_input, test_pe)
-                                                         logger.info(f"🚀 Successfully triggered img_attn in block {block_idx}, output shape: {attn_output.shape}")
+                                                         # Try different calling patterns
+                                                         try:
+                                                             attn_output = img_attn(test_input, test_pe)
+                                                             logger.info(f"🚀 Successfully triggered img_attn in block {block_idx}, output shape: {attn_output.shape}")
+                                                         except Exception as e1:
+                                                             try:
+                                                                 # Try with just input
+                                                                 attn_output = img_attn(test_input)
+                                                                 logger.info(f"🚀 Successfully triggered img_attn (input only) in block {block_idx}, output shape: {attn_output.shape}")
+                                                             except Exception as e2:
+                                                                 try:
+                                                                     # Try with different input shape
+                                                                     test_input2 = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
+                                                                     attn_output = img_attn(test_input2)
+                                                                     logger.info(f"🚀 Successfully triggered img_attn (alt input) in block {block_idx}, output shape: {attn_output.shape}")
+                                                                 except Exception as e3:
+                                                                     logger.debug(f"All img_attn forward attempts failed in block {block_idx}: {e1}, {e2}, {e3}")
                                                  except Exception as attn_error:
-                                                     logger.debug(f"Img attention forward failed in block {block_idx}: {attn_error}")
+                                                     logger.debug(f"Img attention setup failed in block {block_idx}: {attn_error}")
                                              
                                              if hasattr(block, 'txt_attn'):
                                                  txt_attn = block.txt_attn
@@ -502,10 +517,25 @@ class ConceptAttentionProcessor:
                                                      test_pe = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
                                                      
                                                      with torch.no_grad():
-                                                         attn_output = txt_attn(test_input, test_pe)
-                                                         logger.info(f"🚀 Successfully triggered txt_attn in block {block_idx}, output shape: {attn_output.shape}")
+                                                         # Try different calling patterns
+                                                         try:
+                                                             attn_output = txt_attn(test_input, test_pe)
+                                                             logger.info(f"🚀 Successfully triggered txt_attn in block {block_idx}, output shape: {attn_output.shape}")
+                                                         except Exception as e1:
+                                                             try:
+                                                                 # Try with just input
+                                                                 attn_output = txt_attn(test_input)
+                                                                 logger.info(f"🚀 Successfully triggered txt_attn (input only) in block {block_idx}, output shape: {attn_output.shape}")
+                                                             except Exception as e2:
+                                                                 try:
+                                                                     # Try with different input shape
+                                                                     test_input2 = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
+                                                                     attn_output = txt_attn(test_input2)
+                                                                     logger.info(f"🚀 Successfully triggered txt_attn (alt input) in block {block_idx}, output shape: {attn_output.shape}")
+                                                                 except Exception as e3:
+                                                                     logger.debug(f"All txt_attn forward attempts failed in block {block_idx}: {e1}, {e2}, {e3}")
                                                  except Exception as txt_attn_error:
-                                                     logger.debug(f"Txt attention forward failed in block {block_idx}: {txt_attn_error}")
+                                                     logger.debug(f"Txt attention setup failed in block {block_idx}: {txt_attn_error}")
                                          
                                          except Exception as block_error:
                                              logger.debug(f"Block {block_idx} access failed: {block_error}")
