@@ -402,7 +402,7 @@ class ConceptAttentionProcessor:
             logger.info(f"Extracted embeddings for concepts: {list(concept_embeddings.keys())}")
             
             # Register attention hooks
-            self.concept_attention.extract_attention_outputs()
+            attention_outputs = self.concept_attention.extract_attention_outputs()
             
             # Run model forward pass to capture attention
             with torch.no_grad():
