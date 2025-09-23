@@ -541,7 +541,7 @@ class ConceptAttentionProcessor:
                                                         
                                                         # Store the qkv output directly as attention output
                                                         hook_key = f"img_attn_qkv_block_{block_idx}_{id(img_attn)}"
-                                                        self.attention_outputs[hook_key] = qkv_output
+                                                        self.concept_attention.attention_outputs[hook_key] = qkv_output
                                                         logger.info(f"📝 Stored qkv output directly: {hook_key}")
                                                         
                                                         # Try to run the full attention computation
@@ -559,7 +559,7 @@ class ConceptAttentionProcessor:
                                                             
                                                             # Store the attention output directly
                                                             hook_key = f"img_attn_attention_block_{block_idx}_{id(img_attn)}"
-                                                            self.attention_outputs[hook_key] = attn_output
+                                                            self.concept_attention.attention_outputs[hook_key] = attn_output
                                                             logger.info(f"📝 Stored attention output directly: {hook_key}")
                                                             
                                                             # Apply projection
@@ -568,7 +568,7 @@ class ConceptAttentionProcessor:
                                                             
                                                             # Store the projection output directly
                                                             hook_key = f"img_attn_proj_block_{block_idx}_{id(img_attn)}"
-                                                            self.attention_outputs[hook_key] = proj_output
+                                                            self.concept_attention.attention_outputs[hook_key] = proj_output
                                                             logger.info(f"📝 Stored projection output directly: {hook_key}")
                                                 
                                                 except Exception as attn_error:
@@ -578,9 +578,9 @@ class ConceptAttentionProcessor:
                                         logger.debug(f"Block {block_idx} access failed: {block_error}")
                         
                         # Log total attention outputs captured
-                        logger.info(f"📊 Total attention outputs captured: {len(self.attention_outputs)}")
-                        if self.attention_outputs:
-                            logger.info(f"📊 Attention output keys: {list(self.attention_outputs.keys())}")
+                        logger.info(f"📊 Total attention outputs captured: {len(self.concept_attention.attention_outputs)}")
+                        if self.concept_attention.attention_outputs:
+                            logger.info(f"📊 Attention output keys: {list(self.concept_attention.attention_outputs.keys())}")
                         else:
                             logger.warning("⚠️ No attention outputs captured!")
                         
