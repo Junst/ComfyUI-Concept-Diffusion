@@ -506,6 +506,57 @@ class ConceptAttentionProcessor:
                                     break
                         logger.info(f"Accessed {param_count} attention-related parameters")
                         
+                        # Try a different approach - directly access and run individual attention modules
+                        logger.info("🔍 Attempting direct attention module execution")
+                        
+                        if diffusion_model is not None and hasattr(diffusion_model, 'double_blocks'):
+                            double_blocks = diffusion_model.double_blocks
+                            
+                            for block_idx in [15, 16, 17, 18, 19]:  # Target specific blocks
+                                if block_idx < len(double_blocks):
+                                    block = double_blocks[block_idx]
+                                    logger.info(f"Attempting direct attention execution in block {block_idx}")
+                                    
+                                    try:
+                                        # Try to access and run individual attention modules
+                                        if hasattr(block, 'img_attn'):
+                                            img_attn = block.img_attn
+                                            logger.info(f"Found img_attn in block {block_idx}: {type(img_attn)}")
+                                            
+                                            # Create test input for SelfAttention
+                                            test_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
+                                            
+                                            with torch.no_grad():
+                                                # Try to run the attention module directly
+                                                try:
+                                                    # SelfAttention typically has qkv, norm, proj
+                                                    if hasattr(img_attn, 'qkv'):
+                                                        qkv_output = img_attn.qkv(test_input)
+                                                        logger.info(f"🚀 Successfully ran img_attn.qkv in block {block_idx}, output shape: {qkv_output.shape}")
+                                                        
+                                                        # Try to run the full attention computation
+                                                        if hasattr(img_attn, 'norm') and hasattr(img_attn, 'proj'):
+                                                            # Split qkv output
+                                                            qkv_split = qkv_output.view(1, 1024, 3, 256)
+                                                            q, k, v = qkv_split[:, :, 0], qkv_split[:, :, 1], qkv_split[:, :, 2]
+                                                            
+                                                            # Apply norm
+                                                            q, k = img_attn.norm(q, k, v)
+                                                            
+                                                            # Compute attention
+                                                            attn_output = torch.nn.functional.scaled_dot_product_attention(q, k, v)
+                                                            logger.info(f"🚀 Successfully computed attention in block {block_idx}, output shape: {attn_output.shape}")
+                                                            
+                                                            # Apply projection
+                                                            proj_output = img_attn.proj(attn_output)
+                                                            logger.info(f"🚀 Successfully ran img_attn.proj in block {block_idx}, output shape: {proj_output.shape}")
+                                                
+                                                except Exception as attn_error:
+                                                    logger.debug(f"Direct attention execution failed in block {block_idx}: {attn_error}")
+                                    
+                                    except Exception as block_error:
+                                        logger.debug(f"Block {block_idx} access failed: {block_error}")
+                        
                     except Exception as e:
                         logger.warning(f"DoubleStreamBlock execution failed: {e}")
                         logger.info("Hooks may not have been triggered")
