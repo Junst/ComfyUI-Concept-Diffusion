@@ -166,31 +166,8 @@ class ConceptAttention:
         concept_maps = {}
         
         if not hasattr(self, 'attention_outputs') or not self.attention_outputs:
-            logger.warning("No attention outputs captured! Using mock data for testing.")
-            # Create mock attention outputs for testing
-            mock_output = torch.randn(1, 1024, 9216, device=self.device, dtype=torch.bfloat16)
-            self.attention_outputs["mock_attention"] = mock_output
-            logger.info("🎭 Created mock attention output for testing")
-            
-            # Also create some realistic mock outputs for different concepts
-            for i, concept in enumerate(concept_embeddings.keys()):
-                # Create concept-specific mock attention
-                concept_mock = torch.randn(1, 1024, 9216, device=self.device, dtype=torch.bfloat16)
-                # Add some spatial patterns to make it more realistic
-                spatial_pattern = torch.zeros(1, 1024, 9216, device=self.device, dtype=torch.bfloat16)
-                # Create a simple pattern based on concept index
-                pattern_size = 32  # 32x32 = 1024
-                center_y, center_x = pattern_size // 2, pattern_size // 2
-                for y in range(pattern_size):
-                    for x in range(pattern_size):
-                        idx = y * pattern_size + x
-                        # Create a radial pattern with some variation
-                        dist = ((y - center_y) ** 2 + (x - center_x) ** 2) ** 0.5
-                        intensity = torch.exp(torch.tensor(-dist / (pattern_size * 0.3), device=self.device, dtype=torch.bfloat16)) * (0.5 + 0.5 * torch.sin(torch.tensor(i * 2 * math.pi / len(concept_embeddings), device=self.device, dtype=torch.bfloat16)))
-                        spatial_pattern[0, idx, :] = intensity
-                
-                concept_mock = concept_mock + spatial_pattern * 0.3
-                self.attention_outputs[f"mock_{concept}"] = concept_mock
+            logger.error("No attention outputs captured! This means hooks are not working properly.")
+            raise RuntimeError("Failed to capture attention outputs from the model. Hooks may not be working correctly.")
         
         try:
             # Select the best attention output for concept extraction
@@ -366,8 +343,10 @@ class ConceptAttention:
                 similarity_flat = similarity.flatten()
                 
                 # Use percentile-based normalization for better contrast
-                p95 = torch.quantile(similarity_flat, 0.95)
-                p5 = torch.quantile(similarity_flat, 0.05)
+                # Convert to float for quantile function
+                similarity_float = similarity_flat.to(dtype=torch.float32)
+                p95 = torch.quantile(similarity_float, 0.95)
+                p5 = torch.quantile(similarity_float, 0.05)
                 
                 if p95 > p5:
                     # Clamp to percentile range and normalize
