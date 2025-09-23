@@ -437,7 +437,7 @@ class ConceptAttentionProcessor:
                     if model_device != self.device:
                         actual_model = actual_model.to(self.device)
                     
-                     try:
+                    try:
                          # More aggressive hook triggering approach
                          logger.info("🔍 Attempting aggressive hook triggering")
                          
