@@ -35,9 +35,11 @@ class ConceptAttention:
         self.attention_outputs = {}
         
         def hook_fn(module, input, output):
-            # Store attention outputs for concept extraction
+            # Add debug logging to see if hook is being called at all
             module_name = getattr(module, '__class__', type(module)).__name__
+            logger.info(f"🔍 HOOK CALLED on {module_name} - checking if attention-related")
             
+            # Store attention outputs for concept extraction
             # Capture outputs from Flux DiT specific attention modules
             # Focus on actual attention outputs, not Linear layers
             if any(keyword in module_name.lower() for keyword in [
@@ -51,6 +53,9 @@ class ConceptAttention:
                 hook_key = f"{module_name}_{id(module)}"
                 self.attention_outputs[hook_key] = output
                 logger.info(f"🎯 HOOK TRIGGERED! Captured output from {module_name}: {output.shape}")
+                logger.info(f"Total attention outputs captured: {len(self.attention_outputs)}")
+            else:
+                logger.info(f"Hook called on {module_name} but not capturing (not attention-related)")
         
         # Get the actual model from ModelPatcher
         actual_model = getattr(self.model, 'model', self.model)
@@ -534,6 +539,11 @@ class ConceptAttentionProcessor:
                                                         qkv_output = img_attn.qkv(test_input)
                                                         logger.info(f"🚀 Successfully ran img_attn.qkv in block {block_idx}, output shape: {qkv_output.shape}")
                                                         
+                                                        # Store the qkv output directly as attention output
+                                                        hook_key = f"img_attn_qkv_block_{block_idx}_{id(img_attn)}"
+                                                        self.attention_outputs[hook_key] = qkv_output
+                                                        logger.info(f"📝 Stored qkv output directly: {hook_key}")
+                                                        
                                                         # Try to run the full attention computation
                                                         if hasattr(img_attn, 'norm') and hasattr(img_attn, 'proj'):
                                                             # Split qkv output
@@ -547,15 +557,32 @@ class ConceptAttentionProcessor:
                                                             attn_output = torch.nn.functional.scaled_dot_product_attention(q, k, v)
                                                             logger.info(f"🚀 Successfully computed attention in block {block_idx}, output shape: {attn_output.shape}")
                                                             
+                                                            # Store the attention output directly
+                                                            hook_key = f"img_attn_attention_block_{block_idx}_{id(img_attn)}"
+                                                            self.attention_outputs[hook_key] = attn_output
+                                                            logger.info(f"📝 Stored attention output directly: {hook_key}")
+                                                            
                                                             # Apply projection
                                                             proj_output = img_attn.proj(attn_output)
                                                             logger.info(f"🚀 Successfully ran img_attn.proj in block {block_idx}, output shape: {proj_output.shape}")
+                                                            
+                                                            # Store the projection output directly
+                                                            hook_key = f"img_attn_proj_block_{block_idx}_{id(img_attn)}"
+                                                            self.attention_outputs[hook_key] = proj_output
+                                                            logger.info(f"📝 Stored projection output directly: {hook_key}")
                                                 
                                                 except Exception as attn_error:
                                                     logger.debug(f"Direct attention execution failed in block {block_idx}: {attn_error}")
                                     
                                     except Exception as block_error:
                                         logger.debug(f"Block {block_idx} access failed: {block_error}")
+                        
+                        # Log total attention outputs captured
+                        logger.info(f"📊 Total attention outputs captured: {len(self.attention_outputs)}")
+                        if self.attention_outputs:
+                            logger.info(f"📊 Attention output keys: {list(self.attention_outputs.keys())}")
+                        else:
+                            logger.warning("⚠️ No attention outputs captured!")
                         
                     except Exception as e:
                         logger.warning(f"DoubleStreamBlock execution failed: {e}")
