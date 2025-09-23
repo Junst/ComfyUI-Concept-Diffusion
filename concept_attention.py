@@ -527,9 +527,9 @@ class ConceptAttentionProcessor:
                                      break
                          logger.info(f"Accessed {param_count} attention-related parameters")
                          
-                     except Exception as e:
-                         logger.warning(f"Aggressive hook triggering failed: {e}")
-                         logger.info("Will use mock data as fallback")
+                    except Exception as e:
+                        logger.warning(f"Aggressive hook triggering failed: {e}")
+                        logger.info("Will use mock data as fallback")
                 else:
                     logger.warning("No suitable model found, will use mock data")
             
