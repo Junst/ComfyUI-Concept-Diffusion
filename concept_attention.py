@@ -497,6 +497,21 @@ class ConceptAttentionProcessor:
                                         
                                         except Exception as block_error:
                                             logger.debug(f"Block {block_idx} access failed: {block_error}")
+                                        
+                                        # Try to run the entire block to trigger hooks
+                                        try:
+                                            logger.info(f"Attempting to run entire block {block_idx}")
+                                            # Create inputs for the entire block
+                                            block_img = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
+                                            block_txt = torch.randn(1, 77, 256, device=self.device, dtype=model_dtype)
+                                            block_vec = torch.randn(1, 256, device=self.device, dtype=model_dtype)
+                                            block_pe = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
+                                            
+                                            with torch.no_grad():
+                                                block_output = block(block_img, block_txt, block_vec, block_pe)
+                                                logger.info(f"🚀 Successfully ran entire block {block_idx}, output shape: {block_output.shape if hasattr(block_output, 'shape') else 'No shape'}")
+                                        except Exception as full_block_error:
+                                            logger.debug(f"Full block {block_idx} execution failed: {full_block_error}")
                         
                         # Also try to trigger hooks by accessing model parameters
                         logger.info("🔍 Attempting to trigger hooks by accessing model parameters")
