@@ -512,6 +512,57 @@ class ConceptAttentionProcessor:
                                                 logger.info(f"🚀 Successfully ran entire block {block_idx}, output shape: {block_output.shape if hasattr(block_output, 'shape') else 'No shape'}")
                                         except Exception as full_block_error:
                                             logger.debug(f"Full block {block_idx} execution failed: {full_block_error}")
+                                        
+                                        # Try to run individual attention modules with different input shapes
+                                        try:
+                                            logger.info(f"Attempting to run individual attention modules in block {block_idx}")
+                                            
+                                            if hasattr(block, 'img_attn'):
+                                                img_attn = block.img_attn
+                                                logger.info(f"Running img_attn in block {block_idx}")
+                                                
+                                                # Try different input shapes for SelfAttention
+                                                for seq_len in [1024, 256, 64]:
+                                                    for dim in [256, 512, 1024]:
+                                                        try:
+                                                            attn_input = torch.randn(1, seq_len, dim, device=self.device, dtype=model_dtype)
+                                                            attn_pe = torch.randn(1, seq_len, dim, device=self.device, dtype=model_dtype)
+                                                            
+                                                            with torch.no_grad():
+                                                                attn_output = img_attn(attn_input, attn_pe)
+                                                                logger.info(f"🚀 Successfully ran img_attn in block {block_idx} with input shape {attn_input.shape}, output shape: {attn_output.shape}")
+                                                                break
+                                                        except Exception as e:
+                                                            logger.debug(f"img_attn failed with input shape {attn_input.shape}: {e}")
+                                                            continue
+                                                    else:
+                                                        continue
+                                                    break
+                                            
+                                            if hasattr(block, 'txt_attn'):
+                                                txt_attn = block.txt_attn
+                                                logger.info(f"Running txt_attn in block {block_idx}")
+                                                
+                                                # Try different input shapes for text attention
+                                                for seq_len in [77, 256, 64]:
+                                                    for dim in [256, 512, 1024]:
+                                                        try:
+                                                            txt_input = torch.randn(1, seq_len, dim, device=self.device, dtype=model_dtype)
+                                                            txt_pe = torch.randn(1, seq_len, dim, device=self.device, dtype=model_dtype)
+                                                            
+                                                            with torch.no_grad():
+                                                                txt_output = txt_attn(txt_input, txt_pe)
+                                                                logger.info(f"🚀 Successfully ran txt_attn in block {block_idx} with input shape {txt_input.shape}, output shape: {txt_output.shape}")
+                                                                break
+                                                        except Exception as e:
+                                                            logger.debug(f"txt_attn failed with input shape {txt_input.shape}: {e}")
+                                                            continue
+                                                    else:
+                                                        continue
+                                                    break
+                                        
+                                        except Exception as individual_attn_error:
+                                            logger.debug(f"Individual attention execution failed in block {block_idx}: {individual_attn_error}")
                         
                         # Also try to trigger hooks by accessing model parameters
                         logger.info("🔍 Attempting to trigger hooks by accessing model parameters")
