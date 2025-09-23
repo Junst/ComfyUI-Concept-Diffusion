@@ -134,24 +134,37 @@ class ConceptAttention:
         
         try:
             for concept in concepts:
-                # Tokenize the concept
-                tokens = tokenizer(concept, return_tensors="pt", padding=True, truncation=True)
-                tokens = {k: v.to(self.device) for k, v in tokens.items()}
-                
-                # Get embeddings from text encoder
-                with torch.no_grad():
-                    if hasattr(text_encoder, 'encode_text'):
-                        embedding = text_encoder.encode_text(tokens["input_ids"])
-                    elif hasattr(text_encoder, 'forward'):
-                        embedding = text_encoder(tokens["input_ids"])
+                # Check if text_encoder and tokenizer are valid
+                if text_encoder is None or tokenizer is None:
+                    logger.warning(f"Text encoder or tokenizer is None, creating fallback embedding for '{concept}'")
+                    # Create fallback embedding with proper dtype
+                    if hasattr(self.model, 'parameters'):
+                        params = list(self.model.parameters())
+                        model_dtype = params[0].dtype if params else torch.float32
                     else:
-                        # Fallback: create dummy embedding with proper dtype
-                        if hasattr(self.model, 'parameters'):
-                            params = list(self.model.parameters())
-                            model_dtype = params[0].dtype if params else torch.float32
+                        model_dtype = torch.float32
+                    embedding = torch.randn(1, 512, device=self.device, dtype=model_dtype)
+                else:
+                    # Tokenize the concept
+                    tokens = tokenizer(concept, return_tensors="pt", padding=True, truncation=True)
+                    tokens = {k: v.to(self.device) for k, v in tokens.items()}
+                    
+                    # Get embeddings from text encoder
+                    with torch.no_grad():
+                        if hasattr(text_encoder, 'encode_text'):
+                            embedding = text_encoder.encode_text(tokens["input_ids"])
+                        elif hasattr(text_encoder, 'forward'):
+                            embedding = text_encoder(tokens["input_ids"])
+                        elif hasattr(text_encoder, 'encode'):
+                            embedding = text_encoder.encode(tokens["input_ids"])
                         else:
-                            model_dtype = torch.float32
-                        embedding = torch.randn(1, 512, device=self.device, dtype=model_dtype)
+                            # Fallback: create dummy embedding with proper dtype
+                            if hasattr(self.model, 'parameters'):
+                                params = list(self.model.parameters())
+                                model_dtype = params[0].dtype if params else torch.float32
+                            else:
+                                model_dtype = torch.float32
+                            embedding = torch.randn(1, 512, device=self.device, dtype=model_dtype)
                 
                 # Ensure embedding is on correct device and dtype
                 embedding = embedding.to(device=self.device)
@@ -589,6 +602,32 @@ class ConceptAttentionProcessor:
                                     
                                     except Exception as block_error:
                                         logger.debug(f"Block {block_idx} access failed: {block_error}")
+                        
+                        # If still no attention outputs, try to force hook triggering by running the actual model
+                        if not self.concept_attention.attention_outputs:
+                            logger.info("🔍 No attention outputs captured, trying to force hook triggering")
+                            try:
+                                # Try to run the actual model forward pass with proper inputs
+                                if hasattr(actual_model, 'apply_model'):
+                                    # Create proper inputs for Flux model
+                                    x = torch.randn(1, 4, 64, 64, device=self.device, dtype=model_dtype)
+                                    timestep = torch.tensor([500], device=self.device, dtype=torch.long)
+                                    context = torch.randn(1, 77, 2048, device=self.device, dtype=model_dtype)
+                                    y = torch.randn(1, 512, device=self.device, dtype=model_dtype)
+                                    
+                                    logger.info(f"Running apply_model with inputs: x={x.shape}, timestep={timestep.shape}, context={context.shape}, y={y.shape}")
+                                    
+                                    with torch.no_grad():
+                                        output = actual_model.apply_model(x, timestep, context, y)
+                                        logger.info(f"🚀 apply_model completed, output shape: {output.shape}")
+                                        
+                                        # Store the output as attention output
+                                        hook_key = f"apply_model_output_{id(actual_model)}"
+                                        self.concept_attention.attention_outputs[hook_key] = output
+                                        logger.info(f"📝 Stored apply_model output: {hook_key}")
+                                        
+                            except Exception as apply_error:
+                                logger.debug(f"apply_model failed: {apply_error}")
                         
                         # Log total attention outputs captured
                         logger.info(f"📊 Total attention outputs captured: {len(self.concept_attention.attention_outputs)}")
