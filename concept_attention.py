@@ -146,7 +146,11 @@ class ConceptAttention:
                         embedding = text_encoder(tokens["input_ids"])
                     else:
                         # Fallback: create dummy embedding with proper dtype
-                        model_dtype = next(self.model.parameters()).dtype if hasattr(self.model, 'parameters') else torch.float32
+                        if hasattr(self.model, 'parameters'):
+                            params = list(self.model.parameters())
+                            model_dtype = params[0].dtype if params else torch.float32
+                        else:
+                            model_dtype = torch.float32
                         embedding = torch.randn(1, 512, device=self.device, dtype=model_dtype)
                 
                 # Ensure embedding is on correct device and dtype
@@ -157,7 +161,11 @@ class ConceptAttention:
         except Exception as e:
             logger.error(f"Error extracting concept embeddings: {e}")
             # Create dummy embeddings as fallback with proper dtype
-            model_dtype = next(self.model.parameters()).dtype if hasattr(self.model, 'parameters') else torch.float32
+            if hasattr(self.model, 'parameters'):
+                params = list(self.model.parameters())
+                model_dtype = params[0].dtype if params else torch.float32
+            else:
+                model_dtype = torch.float32
             for concept in concepts:
                 concept_embeddings[concept] = torch.randn(1, 512, device=self.device, dtype=model_dtype)
         
@@ -425,8 +433,13 @@ class ConceptAttentionProcessor:
                 
                 if actual_model is not None:
                     # Check model device and dtype
-                    model_device = next(actual_model.parameters()).device
-                    model_dtype = next(actual_model.parameters()).dtype
+                    params = list(actual_model.parameters())
+                    if params:
+                        model_device = params[0].device
+                        model_dtype = params[0].dtype
+                    else:
+                        model_device = torch.device('cpu')
+                        model_dtype = torch.float32
                     
                     if model_device != self.device:
                         actual_model = actual_model.to(self.device)
