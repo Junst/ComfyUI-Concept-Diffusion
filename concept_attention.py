@@ -39,9 +39,10 @@ class ConceptAttention:
             module_name = getattr(module, '__class__', type(module)).__name__
             
             # Capture outputs from Flux DiT specific attention modules
+            # Focus on actual attention outputs, not Linear layers
             if any(keyword in module_name.lower() for keyword in [
                 'selfattention', 'crossattention', 'doubleblock', 
-                'img_attn', 'txt_attn', 'attention', 'attn', 'linear'
+                'img_attn', 'txt_attn', 'attention', 'attn'
             ]) or any(keyword in str(module).lower() for keyword in [
                 'selfattention', 'crossattention', 'doubleblock', 
                 'img_attn', 'txt_attn', 'attention', 'attn'
@@ -58,7 +59,8 @@ class ConceptAttention:
         try:
             hook_count = 0
             for name, module in actual_model.named_modules():
-                if any(keyword in name.lower() for keyword in ['attention', 'attn', 'query', 'key', 'value', 'proj']):
+                # Focus on actual attention modules, not Linear layers
+                if any(keyword in name.lower() for keyword in ['attention', 'attn']) and 'linear' not in name.lower():
                     hook = module.register_forward_hook(hook_fn)
                     self.attention_hooks.append(hook)
                     hook_count += 1
@@ -477,48 +479,33 @@ class ConceptAttentionProcessor:
                                                  img_attn = block.img_attn
                                                  logger.info(f"Found img_attn in block {block_idx}: {type(img_attn)}")
                                                  
-                                                 # Try to access qkv layer
-                                                 if hasattr(img_attn, 'qkv'):
-                                                     qkv = img_attn.qkv
-                                                     logger.info(f"Found qkv in block {block_idx}: {type(qkv)}")
+                                                 # Try to trigger the actual attention module (not just qkv/proj)
+                                                 try:
+                                                     # Create appropriate inputs for the attention module
+                                                     # SelfAttention expects: x, pe (positional encoding)
+                                                     test_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
+                                                     test_pe = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
                                                      
-                                                     # Try to trigger the qkv layer
-                                                     try:
-                                                         test_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
-                                                         with torch.no_grad():
-                                                             qkv_output = qkv(test_input)
-                                                             logger.info(f"🚀 Successfully triggered qkv in block {block_idx}, output shape: {qkv_output.shape}")
-                                                     except Exception as qkv_error:
-                                                         logger.debug(f"QKV forward failed in block {block_idx}: {qkv_error}")
-                                                 
-                                                 # Try to access proj layer
-                                                 if hasattr(img_attn, 'proj'):
-                                                     proj = img_attn.proj
-                                                     logger.info(f"Found proj in block {block_idx}: {type(proj)}")
-                                                     
-                                                     # Try to trigger the proj layer
-                                                     try:
-                                                         test_input = torch.randn(1, 1024, 3072, device=self.device, dtype=model_dtype)
-                                                         with torch.no_grad():
-                                                             proj_output = proj(test_input)
-                                                             logger.info(f"🚀 Successfully triggered proj in block {block_idx}, output shape: {proj_output.shape}")
-                                                     except Exception as proj_error:
-                                                         logger.debug(f"Proj forward failed in block {block_idx}: {proj_error}")
+                                                     with torch.no_grad():
+                                                         attn_output = img_attn(test_input, test_pe)
+                                                         logger.info(f"🚀 Successfully triggered img_attn in block {block_idx}, output shape: {attn_output.shape}")
+                                                 except Exception as attn_error:
+                                                     logger.debug(f"Img attention forward failed in block {block_idx}: {attn_error}")
                                              
                                              if hasattr(block, 'txt_attn'):
                                                  txt_attn = block.txt_attn
                                                  logger.info(f"Found txt_attn in block {block_idx}: {type(txt_attn)}")
                                                  
-                                                 # Similar approach for txt_attn
-                                                 if hasattr(txt_attn, 'qkv'):
-                                                     qkv = txt_attn.qkv
-                                                     try:
-                                                         test_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
-                                                         with torch.no_grad():
-                                                             qkv_output = qkv(test_input)
-                                                             logger.info(f"🚀 Successfully triggered txt_attn qkv in block {block_idx}, output shape: {qkv_output.shape}")
-                                                     except Exception as txt_qkv_error:
-                                                         logger.debug(f"Txt QKV forward failed in block {block_idx}: {txt_qkv_error}")
+                                                 # Try to trigger the actual attention module
+                                                 try:
+                                                     test_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
+                                                     test_pe = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
+                                                     
+                                                     with torch.no_grad():
+                                                         attn_output = txt_attn(test_input, test_pe)
+                                                         logger.info(f"🚀 Successfully triggered txt_attn in block {block_idx}, output shape: {attn_output.shape}")
+                                                 except Exception as txt_attn_error:
+                                                     logger.debug(f"Txt attention forward failed in block {block_idx}: {txt_attn_error}")
                                          
                                          except Exception as block_error:
                                              logger.debug(f"Block {block_idx} access failed: {block_error}")
