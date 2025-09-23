@@ -549,13 +549,13 @@ class ConceptAttentionProcessor:
             
             return concept_maps
             
-         except Exception as e:
-             logger.error(f"Error in ConceptAttention: {e}")
-             # Cleanup hooks on error
-             self.concept_attention.cleanup_hooks()
-             # Return empty concept maps instead of raising error
-             logger.warning("Returning empty concept maps due to error")
-             return {}
+        except Exception as e:
+            logger.error(f"Error in ConceptAttention: {e}")
+            # Cleanup hooks on error
+            self.concept_attention.cleanup_hooks()
+            # Return empty concept maps instead of raising error
+            logger.warning("Returning empty concept maps due to error")
+            return {}
     
     def _extract_concept_embeddings(self, concepts: List[str], text_encoder, tokenizer):
         """
