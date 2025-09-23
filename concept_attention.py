@@ -166,8 +166,8 @@ class ConceptAttention:
         concept_maps = {}
         
         if not hasattr(self, 'attention_outputs') or not self.attention_outputs:
-            logger.warning("No attention outputs captured! Creating mock concept maps for testing.")
-            return self._create_mock_concept_maps(concept_embeddings, image_shape)
+            logger.error("No attention outputs captured! This means hooks are not working properly.")
+            raise RuntimeError("Failed to capture attention outputs from the model. Hooks may not be working correctly.")
         
         try:
             # Select the best attention output for concept extraction
@@ -373,39 +373,6 @@ class ConceptAttention:
         
         return concept_maps
     
-    def _create_mock_concept_maps(self, concept_embeddings, image_shape):
-        """Create mock concept maps for testing when hooks don't work"""
-        concept_maps = {}
-        target_h, target_w = image_shape[1], image_shape[2]
-        
-        logger.info(f"Creating mock concept maps for {len(concept_embeddings)} concepts, target size: {target_h}x{target_w}")
-        
-        for i, concept_name in enumerate(concept_embeddings.keys()):
-            # Create a mock concept map with some pattern
-            x = torch.linspace(-1, 1, target_w)
-            y = torch.linspace(-1, 1, target_h)
-            X, Y = torch.meshgrid(x, y, indexing='ij')
-            
-            # Different patterns for different concepts
-            if i == 0:
-                concept_map = torch.exp(-(X**2 + Y**2) / 0.3)  # Gaussian in center
-            elif i == 1:
-                concept_map = torch.exp(-((X-0.5)**2 + (Y-0.5)**2) / 0.2)  # Gaussian offset
-            elif i == 2:
-                concept_map = torch.exp(-((X+0.5)**2 + (Y+0.5)**2) / 0.2)  # Another offset
-            elif i == 3:
-                concept_map = torch.exp(-((X-0.3)**2 + (Y+0.3)**2) / 0.15)  # Small offset
-            else:
-                concept_map = torch.sin(X * 3) * torch.cos(Y * 3) + 1  # Sine pattern
-            
-            # Normalize to [0, 1]
-            concept_map = (concept_map - concept_map.min()) / (concept_map.max() - concept_map.min())
-            concept_map = concept_map.to(torch.float32)
-            
-            logger.info(f"Created mock concept map for '{concept_name}': shape {concept_map.shape}")
-            concept_maps[concept_name] = concept_map
-        
-        return concept_maps
     
     def cleanup_hooks(self):
         """Remove all registered hooks."""
@@ -460,8 +427,8 @@ class ConceptAttentionProcessor:
                         actual_model = actual_model.to(self.device)
                     
                     try:
-                        # Try a different approach - directly access and run attention modules
-                        logger.info("🔍 Attempting direct attention module execution")
+                        # Based on ComfyUI Flux model analysis, we need to run the actual DoubleStreamBlock.forward()
+                        logger.info("🔍 Attempting to run actual DoubleStreamBlock.forward() based on ComfyUI analysis")
                         
                         # Find the diffusion model
                         diffusion_model = None
@@ -473,7 +440,7 @@ class ConceptAttentionProcessor:
                         if diffusion_model is not None:
                             logger.info(f"Found diffusion model: {type(diffusion_model)}")
                             
-                            # Try to access and run individual attention modules
+                            # Access double_blocks like in ComfyUI's forward_orig
                             if hasattr(diffusion_model, 'double_blocks'):
                                 double_blocks = diffusion_model.double_blocks
                                 logger.info(f"Found {len(double_blocks)} double blocks")
@@ -484,119 +451,49 @@ class ConceptAttentionProcessor:
                                 for block_idx in target_blocks:
                                     if block_idx < len(double_blocks):
                                         block = double_blocks[block_idx]
-                                        logger.info(f"Attempting to run block {block_idx}: {type(block)}")
+                                        logger.info(f"Running DoubleStreamBlock.forward() for block {block_idx}: {type(block)}")
                                         
                                         try:
-                                            # Try to run individual attention modules within the block
-                                            if hasattr(block, 'img_attn'):
-                                                img_attn = block.img_attn
-                                                logger.info(f"Found img_attn in block {block_idx}: {type(img_attn)}")
-                                                
-                                                # Create simple inputs for SelfAttention
-                                                # SelfAttention typically takes (x, pe) where x is [batch, seq_len, dim]
-                                                attn_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
-                                                attn_pe = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
-                                                
-                                                with torch.no_grad():
-                                                    try:
-                                                        # Try different calling patterns for SelfAttention
-                                                        attn_output = img_attn(attn_input, attn_pe)
-                                                        logger.info(f"🚀 Successfully ran img_attn in block {block_idx}, output shape: {attn_output.shape}")
-                                                    except Exception as e1:
-                                                        try:
-                                                            # Try with just input
-                                                            attn_output = img_attn(attn_input)
-                                                            logger.info(f"🚀 Successfully ran img_attn (input only) in block {block_idx}, output shape: {attn_output.shape}")
-                                                        except Exception as e2:
-                                                            logger.debug(f"img_attn execution failed in block {block_idx}: {e1}, {e2}")
+                                            # Create proper inputs for DoubleStreamBlock.forward() based on ComfyUI analysis
+                                            # DoubleStreamBlock.forward(img, txt, vec, pe, attn_mask, modulation_dims_img, modulation_dims_txt, transformer_options)
                                             
-                                            if hasattr(block, 'txt_attn'):
-                                                txt_attn = block.txt_attn
-                                                logger.info(f"Found txt_attn in block {block_idx}: {type(txt_attn)}")
-                                                
-                                                # Create inputs for text attention
-                                                txt_input = torch.randn(1, 77, 256, device=self.device, dtype=model_dtype)
-                                                txt_pe = torch.randn(1, 77, 256, device=self.device, dtype=model_dtype)
-                                                
-                                                with torch.no_grad():
-                                                    try:
-                                                        txt_output = txt_attn(txt_input, txt_pe)
-                                                        logger.info(f"🚀 Successfully ran txt_attn in block {block_idx}, output shape: {txt_output.shape}")
-                                                    except Exception as e1:
-                                                        try:
-                                                            txt_output = txt_attn(txt_input)
-                                                            logger.info(f"🚀 Successfully ran txt_attn (input only) in block {block_idx}, output shape: {txt_output.shape}")
-                                                        except Exception as e2:
-                                                            logger.debug(f"txt_attn execution failed in block {block_idx}: {e1}, {e2}")
-                                        
-                                        except Exception as block_error:
-                                            logger.debug(f"Block {block_idx} access failed: {block_error}")
-                                        
-                                        # Try to run the entire block to trigger hooks
-                                        try:
-                                            logger.info(f"Attempting to run entire block {block_idx}")
-                                            # Create inputs for the entire block
-                                            block_img = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
-                                            block_txt = torch.randn(1, 77, 256, device=self.device, dtype=model_dtype)
-                                            block_vec = torch.randn(1, 256, device=self.device, dtype=model_dtype)
-                                            block_pe = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
+                                            # Based on ComfyUI's forward_orig, we need:
+                                            # img: [batch, seq_len, hidden_size] - image tokens
+                                            # txt: [batch, seq_len, hidden_size] - text tokens  
+                                            # vec: [batch, hidden_size] - time/guidance embedding
+                                            # pe: [batch, seq_len, hidden_size] - positional embedding
+                                            
+                                            batch_size = 1
+                                            hidden_size = 256  # Common Flux hidden size
+                                            img_seq_len = 1024  # Image sequence length
+                                            txt_seq_len = 77    # Text sequence length
+                                            
+                                            # Create inputs matching ComfyUI's format
+                                            img = torch.randn(batch_size, img_seq_len, hidden_size, device=self.device, dtype=model_dtype)
+                                            txt = torch.randn(batch_size, txt_seq_len, hidden_size, device=self.device, dtype=model_dtype)
+                                            vec = torch.randn(batch_size, hidden_size, device=self.device, dtype=model_dtype)
+                                            pe = torch.randn(batch_size, img_seq_len + txt_seq_len, hidden_size, device=self.device, dtype=model_dtype)
+                                            
+                                            logger.info(f"Created inputs - img: {img.shape}, txt: {txt.shape}, vec: {vec.shape}, pe: {pe.shape}")
                                             
                                             with torch.no_grad():
-                                                block_output = block(block_img, block_txt, block_vec, block_pe)
-                                                logger.info(f"🚀 Successfully ran entire block {block_idx}, output shape: {block_output.shape if hasattr(block_output, 'shape') else 'No shape'}")
-                                        except Exception as full_block_error:
-                                            logger.debug(f"Full block {block_idx} execution failed: {full_block_error}")
-                                        
-                                        # Try to run individual attention modules with different input shapes
-                                        try:
-                                            logger.info(f"Attempting to run individual attention modules in block {block_idx}")
-                                            
-                                            if hasattr(block, 'img_attn'):
-                                                img_attn = block.img_attn
-                                                logger.info(f"Running img_attn in block {block_idx}")
+                                                # Call DoubleStreamBlock.forward() exactly like ComfyUI does
+                                                img_out, txt_out = block(
+                                                    img=img,
+                                                    txt=txt, 
+                                                    vec=vec,
+                                                    pe=pe,
+                                                    attn_mask=None,
+                                                    modulation_dims_img=None,
+                                                    modulation_dims_txt=None,
+                                                    transformer_options={}
+                                                )
                                                 
-                                                # Try different input shapes for SelfAttention
-                                                for seq_len in [1024, 256, 64]:
-                                                    for dim in [256, 512, 1024]:
-                                                        try:
-                                                            attn_input = torch.randn(1, seq_len, dim, device=self.device, dtype=model_dtype)
-                                                            attn_pe = torch.randn(1, seq_len, dim, device=self.device, dtype=model_dtype)
-                                                            
-                                                            with torch.no_grad():
-                                                                attn_output = img_attn(attn_input, attn_pe)
-                                                                logger.info(f"🚀 Successfully ran img_attn in block {block_idx} with input shape {attn_input.shape}, output shape: {attn_output.shape}")
-                                                                break
-                                                        except Exception as e:
-                                                            logger.debug(f"img_attn failed with input shape {attn_input.shape}: {e}")
-                                                            continue
-                                                    else:
-                                                        continue
-                                                    break
-                                            
-                                            if hasattr(block, 'txt_attn'):
-                                                txt_attn = block.txt_attn
-                                                logger.info(f"Running txt_attn in block {block_idx}")
-                                                
-                                                # Try different input shapes for text attention
-                                                for seq_len in [77, 256, 64]:
-                                                    for dim in [256, 512, 1024]:
-                                                        try:
-                                                            txt_input = torch.randn(1, seq_len, dim, device=self.device, dtype=model_dtype)
-                                                            txt_pe = torch.randn(1, seq_len, dim, device=self.device, dtype=model_dtype)
-                                                            
-                                                            with torch.no_grad():
-                                                                txt_output = txt_attn(txt_input, txt_pe)
-                                                                logger.info(f"🚀 Successfully ran txt_attn in block {block_idx} with input shape {txt_input.shape}, output shape: {txt_output.shape}")
-                                                                break
-                                                        except Exception as e:
-                                                            logger.debug(f"txt_attn failed with input shape {txt_input.shape}: {e}")
-                                                            continue
-                                                    else:
-                                                        continue
-                                                    break
+                                                logger.info(f"🚀 Successfully ran DoubleStreamBlock.forward() for block {block_idx}")
+                                                logger.info(f"Output shapes - img: {img_out.shape}, txt: {txt_out.shape}")
                                         
-                                        except Exception as individual_attn_error:
-                                            logger.debug(f"Individual attention execution failed in block {block_idx}: {individual_attn_error}")
+                                        except Exception as block_error:
+                                            logger.debug(f"DoubleStreamBlock.forward() failed for block {block_idx}: {block_error}")
                         
                         # Also try to trigger hooks by accessing model parameters
                         logger.info("🔍 Attempting to trigger hooks by accessing model parameters")
@@ -610,7 +507,7 @@ class ConceptAttentionProcessor:
                         logger.info(f"Accessed {param_count} attention-related parameters")
                         
                     except Exception as e:
-                        logger.warning(f"Direct attention execution failed: {e}")
+                        logger.warning(f"DoubleStreamBlock execution failed: {e}")
                         logger.info("Hooks may not have been triggered")
                 else:
                     logger.warning("No suitable model found, will use mock data")
