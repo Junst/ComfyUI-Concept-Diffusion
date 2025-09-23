@@ -425,7 +425,7 @@ class ConceptAttentionProcessor:
                     if model_device != self.device:
                         actual_model = actual_model.to(self.device)
                     
-                     try:
+                    try:
                          # Try to run the actual Flux model forward pass to trigger hooks
                          logger.info("🔍 Attempting to run actual Flux model forward pass")
                          
