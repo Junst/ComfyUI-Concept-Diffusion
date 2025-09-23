@@ -394,101 +394,39 @@ class ConceptAttention:
         logger.info(f"Using model: {type(actual_model)}")
         
         try:
-            # Try direct attention module execution instead of patches_replace
-            logger.info("🔍 Trying direct attention module execution")
-            
-            if hasattr(actual_model, 'double_blocks'):
-                double_blocks = actual_model.double_blocks
-                logger.info(f"Found {len(double_blocks)} double blocks")
+            # Try to use ComfyUI's patches_replace system to intercept attention
+            if hasattr(actual_model, 'apply_model'):
+                # Create proper inputs for Flux model
+                x = torch.randn(1, 4, 64, 64, device=self.device, dtype=model_dtype)
+                timestep = torch.tensor([500], device=self.device, dtype=torch.long)
+                context = torch.randn(1, 77, 2048, device=self.device, dtype=model_dtype)
+                y = torch.randn(1, 512, device=self.device, dtype=model_dtype)
                 
-                # Target specific blocks (15-18 as in original ConceptAttention)
-                for block_idx in [15, 16, 17, 18]:
-                    if block_idx < len(double_blocks):
-                        block = double_blocks[block_idx]
-                        logger.info(f"Processing block {block_idx}: {type(block)}")
-                        
-                        # Try to access attention modules directly
-                        if hasattr(block, 'img_attn'):
-                            img_attn = block.img_attn
-                            logger.info(f"Found img_attn in block {block_idx}: {type(img_attn)}")
-                            
-                            # Create test input for attention
-                            test_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
-                            
-                            with torch.no_grad():
-                                try:
-                                    # Try to capture qkv output
-                                    if hasattr(img_attn, 'qkv'):
-                                        qkv_output = img_attn.qkv(test_input)
-                                        hook_key = f"direct_qkv_block_{block_idx}_{id(img_attn)}"
-                                        self.attention_outputs[hook_key] = qkv_output
-                                        logger.info(f"📝 Captured qkv output from block {block_idx}: {qkv_output.shape}")
-                                        
-                                        # Try to capture full attention computation
-                                        if hasattr(img_attn, 'norm') and hasattr(img_attn, 'proj'):
-                                            # Split qkv output
-                                            qkv_split = qkv_output.view(1, 1024, 3, 256)
-                                            q, k, v = qkv_split[:, :, 0], qkv_split[:, :, 1], qkv_split[:, :, 2]
-                                            
-                                            # Apply norm
-                                            q, k = img_attn.norm(q, k, v)
-                                            
-                                            # Compute attention
-                                            attn_output = torch.nn.functional.scaled_dot_product_attention(q, k, v)
-                                            hook_key = f"direct_attention_block_{block_idx}_{id(img_attn)}"
-                                            self.attention_outputs[hook_key] = attn_output
-                                            logger.info(f"📝 Captured attention output from block {block_idx}: {attn_output.shape}")
-                                            
-                                            # Apply projection
-                                            proj_output = img_attn.proj(attn_output)
-                                            hook_key = f"direct_proj_block_{block_idx}_{id(img_attn)}"
-                                            self.attention_outputs[hook_key] = proj_output
-                                            logger.info(f"📝 Captured projection output from block {block_idx}: {proj_output.shape}")
-                                            
-                                            # Break after first successful block to avoid too much computation
-                                            break
-                                
-                                except Exception as attn_error:
-                                    logger.debug(f"Direct attention execution failed in block {block_idx}: {attn_error}")
-            
-            # If still no outputs, try to use ComfyUI's patches_replace system
-            if not self.attention_outputs:
-                logger.info("🔍 Trying ComfyUI patches_replace system as fallback")
+                logger.info(f"Running apply_model with patches_replace system")
                 
-                if hasattr(actual_model, 'apply_model'):
-                    # Create proper inputs for Flux model
-                    # Flux model expects: x (latent), t (timestep), c_crossattn (context), y (guidance)
-                    x = torch.randn(1, 4, 64, 64, device=self.device, dtype=model_dtype)
-                    t = torch.tensor([500], device=self.device, dtype=torch.long)
-                    c_crossattn = torch.randn(1, 77, 2048, device=self.device, dtype=model_dtype)
-                    y = torch.randn(1, 512, device=self.device, dtype=model_dtype)
-                    
-                    logger.info(f"Running apply_model with patches_replace system")
-                    logger.info(f"Inputs: x={x.shape}, t={t.shape}, c_crossattn={c_crossattn.shape}, y={y.shape}")
-                    
-                    # Create a custom transformer_options with patches_replace
-                    transformer_options = {
-                        "patches_replace": {
-                            "dit": {
-                                ("double_block", 15): self._create_attention_capture_wrapper(15),
-                                ("double_block", 16): self._create_attention_capture_wrapper(16),
-                                ("double_block", 17): self._create_attention_capture_wrapper(17),
-                                ("double_block", 18): self._create_attention_capture_wrapper(18),
-                            }
+                # Create a custom transformer_options with patches_replace
+                transformer_options = {
+                    "patches_replace": {
+                        "dit": {
+                            ("double_block", 15): self._create_attention_capture_wrapper(15),
+                            ("double_block", 16): self._create_attention_capture_wrapper(16),
+                            ("double_block", 17): self._create_attention_capture_wrapper(17),
+                            ("double_block", 18): self._create_attention_capture_wrapper(18),
                         }
                     }
+                }
+                
+                with torch.no_grad():
+                    output = actual_model.apply_model(x, timestep, context, y, transformer_options=transformer_options)
+                    logger.info(f"🚀 apply_model with patches_replace completed, output shape: {output.shape}")
                     
-                    with torch.no_grad():
-                        output = actual_model.apply_model(x, t, c_crossattn=c_crossattn, y=y, transformer_options=transformer_options)
-                        logger.info(f"🚀 apply_model with patches_replace completed, output shape: {output.shape}")
-                        
-                        # Store the output as attention output
-                        hook_key = f"patches_replace_output_{id(actual_model)}"
-                        self.attention_outputs[hook_key] = output
-                        logger.info(f"📝 Stored patches_replace output: {hook_key}")
+                    # Store the output as attention output
+                    hook_key = f"patches_replace_output_{id(actual_model)}"
+                    self.attention_outputs[hook_key] = output
+                    logger.info(f"📝 Stored patches_replace output: {hook_key}")
                     
         except Exception as patches_error:
-            logger.debug(f"Attention capture failed: {patches_error}")
+            logger.debug(f"patches_replace system failed: {patches_error}")
         
         # Log total attention outputs captured
         logger.info(f"📊 Total attention outputs captured: {len(self.attention_outputs)}")
