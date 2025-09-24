@@ -74,6 +74,16 @@ class ConceptAttention:
             # Create context from concept embeddings - ensure proper shape
             if len(concept_embeddings.shape) == 3:  # [batch, seq, dim]
                 context = concept_embeddings
+            elif len(concept_embeddings.shape) == 4:  # [batch, seq, dim1, dim2]
+                # Flatten to 3D: [batch, seq, dim1*dim2]
+                batch, seq, dim1, dim2 = concept_embeddings.shape
+                context = concept_embeddings.view(batch, seq, dim1 * dim2)
+            elif len(concept_embeddings.shape) == 5:  # [batch, batch, seq, dim1, dim2]
+                # Remove extra batch dimension and flatten
+                context = concept_embeddings.squeeze(0)  # Remove first batch dimension
+                if len(context.shape) == 4:  # [seq, dim1, dim2]
+                    seq, dim1, dim2 = context.shape
+                    context = context.view(1, seq, dim1 * dim2)  # Add batch dimension back
             else:
                 context = concept_embeddings.unsqueeze(0)  # Add batch dimension if needed
             
