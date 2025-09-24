@@ -84,16 +84,16 @@ class ConceptAttention:
             with torch.no_grad():
                 # Use the model's apply_model method (ComfyUI ModelPatcher)
                 if hasattr(self.model, 'apply_model'):
-                    output = self.model.apply_model(x, timestep_tensor, context=context, y=y)
+                    output = self.model.apply_model(x, timestep_tensor, context, y)
                 elif hasattr(self.model, 'model') and hasattr(self.model.model, 'apply_model'):
                     # Nested model access
-                    output = self.model.model.apply_model(x, timestep_tensor, context=context, y=y)
+                    output = self.model.model.apply_model(x, timestep_tensor, context, y)
                 else:
                     # Try to access the underlying diffusion model
                     if hasattr(self.model, 'model'):
                         diffusion_model = self.model.model
                         if hasattr(diffusion_model, 'apply_model'):
-                            output = diffusion_model.apply_model(x, timestep_tensor, context=context, y=y)
+                            output = diffusion_model.apply_model(x, timestep_tensor, context, y)
                         else:
                             raise RuntimeError("Cannot find apply_model method in model")
                     else:
