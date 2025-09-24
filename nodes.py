@@ -64,9 +64,24 @@ class ConceptAttentionNode:
             # Initialize ConceptAttention processor
             processor = ConceptAttentionProcessor(model, device)
             
+            # Extract text encoder and tokenizer from clip
+            text_encoder = None
+            tokenizer = None
+            
+            if clip is not None:
+                if hasattr(clip, 'cond_stage_model'):
+                    text_encoder = clip.cond_stage_model
+                elif hasattr(clip, 'text_encoder'):
+                    text_encoder = clip.text_encoder
+                
+                if hasattr(clip, 'tokenizer'):
+                    tokenizer = clip.tokenizer
+                elif hasattr(clip, 'cond_stage_model') and hasattr(clip.cond_stage_model, 'tokenizer'):
+                    tokenizer = clip.cond_stage_model.tokenizer
+            
             # Process image
             saliency_maps = processor.process_image(
-                image, concept_list, clip, None  # tokenizer will be extracted from clip
+                image, concept_list, text_encoder, tokenizer
             )
             
             print(f"DEBUG: processor.process_image returned: {type(saliency_maps)}")
