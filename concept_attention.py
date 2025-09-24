@@ -400,11 +400,10 @@ class ConceptAttention:
                 
                 # Compute similarity between concept embedding and attention output
                 # Use einsum-like operation similar to original ConceptAttention
-                embedding_expanded = embedding.expand(attention_flat.shape[0], attention_flat.shape[1], -1)
-                
-                # Compute concept-image attention map using einsum-like operation
-                concept_attn_output = torch.matmul(embedding_expanded, attention_flat.transpose(-2, -1))
-                concept_attn_output = concept_attn_output.squeeze(1)  # [batch, seq_len]
+                # embedding: [1, 256], attention_flat: [1, 1024, 256]
+                # We want to compute similarity for each position in the sequence
+                concept_attn_output = torch.matmul(attention_flat, embedding.unsqueeze(-1))  # [1, 1024, 1]
+                concept_attn_output = concept_attn_output.squeeze(-1)  # [1, 1024]
                 
                 # Reshape to spatial dimensions
                 seq_len = concept_attn_output.shape[-1]
