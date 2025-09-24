@@ -1,5 +1,5 @@
 {
-  "last_node_id": 10,
+  "last_node_id": 11,
   "last_link_id": 11,
   "nodes": [
     {
@@ -18,18 +18,31 @@
     },
     {
       "id": 2,
-      "type": "CheckpointLoaderSimple",
+      "type": "DiffusionModelLoader",
       "pos": [100, 500],
       "size": {"0": 315, "1": 98},
       "flags": {},
       "order": 1,
       "mode": 0,
       "outputs": [
-        {"name": "MODEL", "type": "MODEL", "links": [2], "slot_index": 0},
-        {"name": "CLIP", "type": "CLIP", "links": [3], "slot_index": 1}
+        {"name": "MODEL", "type": "MODEL", "links": [2], "slot_index": 0}
       ],
-      "properties": {"Node name for S&R": "CheckpointLoaderSimple"},
+      "properties": {"Node name for S&R": "DiffusionModelLoader"},
       "widgets_values": ["flux1-dev.safetensors"]
+    },
+    {
+      "id": 11,
+      "type": "DualCLIPLoader",
+      "pos": [100, 650],
+      "size": {"0": 315, "1": 98},
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "outputs": [
+        {"name": "CLIP", "type": "CLIP", "links": [3], "slot_index": 0}
+      ],
+      "properties": {"Node name for S&R": "DualCLIPLoader"},
+      "widgets_values": ["clip_l.safetensors", "t5xxl_fp16.safetensors", "flux"]
     },
     {
       "id": 3,
