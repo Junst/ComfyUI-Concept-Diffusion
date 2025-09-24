@@ -736,7 +736,11 @@ class ConceptAttentionProcessor:
             attention_outputs = self.concept_attention.extract_attention_outputs()
             
             # Create concept maps
-            image_shape = image.shape[-2:]  # Get height and width
+            # Handle different image formats: [B, H, W, C] or [B, H, W]
+            if len(image.shape) == 4:  # [B, H, W, C]
+                image_shape = image.shape[1:3]  # Get height and width
+            else:  # [B, H, W]
+                image_shape = image.shape[1:3]  # Get height and width
             concept_maps = self.concept_attention._create_concept_maps_from_attention(
                 concepts, concept_embeddings, image_shape
             )
