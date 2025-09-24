@@ -738,6 +738,8 @@ class ConceptAttention:
                 logger.info(f"🔍 Model type: {type(self.model)}")
                 logger.info(f"🔍 Model available: {self.model is not None}")
                 # Use a dummy image if self.image is not available
+                # Flux expects latent space input: [batch, channels, height, width]
+                # For 1024x1024 image, latent is 128x128 (8x downsampling)
                 dummy_image = torch.randn(1, 3, 1024, 1024, device=self.device)
                 self._try_model_forward_pass(self.model, dummy_image)
             
@@ -775,7 +777,18 @@ class ConceptAttention:
             
             # Prepare inputs for Flux model
             batch_size = 1
-            height, width = image.shape[1], image.shape[2]
+            
+            # Handle different image formats
+            if len(image.shape) == 4:  # [B, H, W, C]
+                height, width = image.shape[1], image.shape[2]
+            elif len(image.shape) == 3:  # [H, W, C]
+                height, width = image.shape[0], image.shape[1]
+            else:  # Default to 1024x1024
+                height, width = 1024, 1024
+            
+            # Ensure minimum size for Flux model
+            height = max(height, 64)
+            width = max(width, 64)
             
             # Create dummy inputs for Flux model
             # Flux expects: x (latent), timestep, context (text), y (classifier-free guidance)
