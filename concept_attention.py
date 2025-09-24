@@ -63,13 +63,19 @@ class ConceptAttention:
             batch_size = 1
             height, width = image.shape[-2], image.shape[-1]
             
+            # Ensure minimum dimensions for Flux model
+            latent_height = max(height // 8, 32)
+            latent_width = max(width // 8, 32)
+            
             # Create dummy inputs for Flux model
-            x = torch.randn(batch_size, 4, height // 8, width // 8, device=self.device)
+            x = torch.randn(batch_size, 4, latent_height, latent_width, device=self.device)
             timestep_tensor = torch.tensor([timestep], device=self.device)
             
-            # Create context from concept embeddings
-            context = concept_embeddings.squeeze(0)  # Remove batch dimension
-            context = context.unsqueeze(0)  # Add batch dimension back
+            # Create context from concept embeddings - ensure proper shape
+            if len(concept_embeddings.shape) == 3:  # [batch, seq, dim]
+                context = concept_embeddings
+            else:
+                context = concept_embeddings.unsqueeze(0)  # Add batch dimension if needed
             
             # Create guidance vector
             y = torch.zeros(batch_size, 512, device=self.device)
