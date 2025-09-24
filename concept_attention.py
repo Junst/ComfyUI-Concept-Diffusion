@@ -71,21 +71,23 @@ class ConceptAttention:
             x = torch.randn(batch_size, 4, latent_height, latent_width, device=self.device)
             timestep_tensor = torch.tensor([timestep], device=self.device)
             
-            # Create context from concept embeddings - ensure proper shape
+            # Create context from concept embeddings - ensure proper shape for Flux model
             if len(concept_embeddings.shape) == 3:  # [batch, seq, dim]
-                context = concept_embeddings
+                # Flux model expects 4D context, so we need to add a spatial dimension
+                batch, seq, dim = concept_embeddings.shape
+                # Reshape to 4D: [batch, seq, 1, dim] to match Flux expectations
+                context = concept_embeddings.unsqueeze(2)  # Add spatial dimension
             elif len(concept_embeddings.shape) == 4:  # [batch, seq, dim1, dim2]
-                # Flatten to 3D: [batch, seq, dim1*dim2]
-                batch, seq, dim1, dim2 = concept_embeddings.shape
-                context = concept_embeddings.view(batch, seq, dim1 * dim2)
+                context = concept_embeddings  # Already 4D
             elif len(concept_embeddings.shape) == 5:  # [batch, batch, seq, dim1, dim2]
-                # Remove extra batch dimension and flatten
+                # Remove extra batch dimension
                 context = concept_embeddings.squeeze(0)  # Remove first batch dimension
-                if len(context.shape) == 4:  # [seq, dim1, dim2]
-                    seq, dim1, dim2 = context.shape
-                    context = context.view(1, seq, dim1 * dim2)  # Add batch dimension back
             else:
-                context = concept_embeddings.unsqueeze(0)  # Add batch dimension if needed
+                # For other shapes, try to reshape to 4D
+                if len(concept_embeddings.shape) == 2:  # [seq, dim]
+                    context = concept_embeddings.unsqueeze(0).unsqueeze(2)  # [1, seq, 1, dim]
+                else:
+                    context = concept_embeddings.unsqueeze(0)  # Add batch dimension if needed
             
             # Create guidance vector
             y = torch.zeros(batch_size, 512, device=self.device)
