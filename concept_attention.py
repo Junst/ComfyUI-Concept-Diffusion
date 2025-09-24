@@ -399,26 +399,40 @@ class ConceptAttention:
                     logger.error(f"❌ Text encoder or tokenizer is None for concept '{concept}'! Real text encoding is required.")
                     raise RuntimeError(f"Text encoder and tokenizer are required for concept '{concept}'. No fallback allowed.")
                 else:
-                    # Tokenize the concept
-                    tokens = tokenizer(concept, return_tensors="pt", padding=True, truncation=True)
-                    tokens = {k: v.to(self.device) for k, v in tokens.items()}
-                    
-                    # Get embeddings from text encoder
+                    # Use ComfyUI CLIP's encode method directly
                     with torch.no_grad():
-                        if hasattr(text_encoder, 'encode_text'):
-                            embedding = text_encoder.encode_text(tokens["input_ids"])
-                        elif hasattr(text_encoder, 'forward'):
-                            embedding = text_encoder(tokens["input_ids"])
-                        elif hasattr(text_encoder, 'encode'):
-                            embedding = text_encoder.encode(tokens["input_ids"])
+                        if hasattr(text_encoder, 'encode'):
+                            # ComfyUI CLIP.encode(text) method
+                            embedding = text_encoder.encode(concept)
+                            logger.info(f"Using ComfyUI CLIP.encode for '{concept}': {type(embedding)}")
+                        elif hasattr(text_encoder, 'encode_from_tokens'):
+                            # ComfyUI CLIP.encode_from_tokens(tokens) method
+                            tokens = tokenizer(concept, return_tensors="pt", padding=True, truncation=True)
+                            tokens = {k: v.to(self.device) for k, v in tokens.items()}
+                            embedding = text_encoder.encode_from_tokens(tokens)
+                            logger.info(f"Using ComfyUI CLIP.encode_from_tokens for '{concept}': {type(embedding)}")
+                        elif hasattr(text_encoder, 'cond_stage_model'):
+                            # Direct access to cond_stage_model
+                            if hasattr(text_encoder.cond_stage_model, 'encode_token_weights'):
+                                tokens = tokenizer(concept, return_tensors="pt", padding=True, truncation=True)
+                                tokens = {k: v.to(self.device) for k, v in tokens.items()}
+                                embedding = text_encoder.cond_stage_model.encode_token_weights(tokens)
+                                logger.info(f"Using cond_stage_model.encode_token_weights for '{concept}': {type(embedding)}")
+                            else:
+                                logger.error(f"❌ No recognized encoding method for concept '{concept}'!")
+                                raise RuntimeError(f"Text encoder must have encode, encode_from_tokens, or cond_stage_model.encode_token_weights method. No fallback allowed.")
                         else:
-                            logger.error(f"❌ Text encoder has no recognized methods for concept '{concept}'!")
-                            raise RuntimeError(f"Text encoder must have encode_text, forward, or encode method. No fallback allowed.")
-                
-                # Ensure embedding is on correct device and dtype
-                embedding = embedding.to(device=self.device)
-                concept_embeddings[concept] = embedding
-                logger.info(f"Extracted embedding for '{concept}': shape {embedding.shape}, dtype {embedding.dtype}")
+                            logger.error(f"❌ No recognized encoding method for concept '{concept}'!")
+                            raise RuntimeError(f"Text encoder must have encode, encode_from_tokens, or cond_stage_model method. No fallback allowed.")
+                    
+                    # Handle multiple outputs (e.g., [hidden_states, pooled_output])
+                    if isinstance(embedding, (list, tuple)):
+                        embedding = embedding[0] if len(embedding) > 0 else embedding
+                    
+                    # Ensure embedding is on correct device and dtype
+                    embedding = embedding.to(device=self.device)
+                    concept_embeddings[concept] = embedding
+                    logger.info(f"Extracted embedding for '{concept}': shape {embedding.shape}, dtype {embedding.dtype}")
                 
         except Exception as e:
             logger.error(f"Error extracting concept embeddings: {e}")
