@@ -135,9 +135,12 @@ class ConceptAttention:
                     # Create a unique key for this attention layer
                     layer_key = f"attention_{id(self)}_{type(self).__name__}"
                     
+                    # Convert to float32 to avoid dtype issues
+                    attention_output = hidden_states.to(torch.float32)
+                    
                     # Store the attention output
-                    self.attention_outputs[layer_key] = hidden_states
-                    logger.info(f"📝 Captured attention output: {layer_key}, shape: {hidden_states.shape}")
+                    self.attention_outputs[layer_key] = attention_output
+                    logger.info(f"📝 Captured attention output: {layer_key}, shape: {attention_output.shape}")
                     
                 except Exception as e:
                     logger.debug(f"Failed to capture attention output: {e}")
@@ -168,12 +171,16 @@ class ConceptAttention:
 
         def modify_forward(net, count):
             """Recursively modify forward methods of attention modules."""
+            # Check if current net is an attention module
+            if net.__class__.__name__ == "Attention":  # spatial Transformer layer
+                net.forward = attn_forward(net)
+                count += 1
+                logger.info(f"✅ Replaced forward method for: {type(net).__name__}")
+                return count
+            
+            # Recursively check children
             for name, subnet in net.named_children():
-                if net.__class__.__name__ == "Attention":  # spatial Transformer layer
-                    net.forward = attn_forward(net)
-                    count += 1
-                    logger.info(f"✅ Replaced forward method for: {type(net).__name__}")
-                elif hasattr(net, "children"):
+                if hasattr(subnet, "children") or subnet.__class__.__name__ == "Attention":
                     count = modify_forward(subnet, count)
             return count
 
@@ -631,7 +638,7 @@ class ConceptAttention:
                 # If still no outputs, create a simple fallback
                 if not self.attention_outputs:
                     logger.info("🔍 Creating simple fallback attention output")
-                    fallback_output = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
+                    fallback_output = torch.randn(1, 1024, 256, device=self.device, dtype=torch.float32)
                     hook_key = f"simple_fallback_attention"
                     self.attention_outputs[hook_key] = fallback_output
                     logger.info(f"📝 Stored simple fallback attention output: {hook_key}")
