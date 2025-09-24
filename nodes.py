@@ -95,11 +95,21 @@ class ConceptAttentionNode:
                 if not isinstance(attention_map, np.ndarray):
                     attention_map = np.array(attention_map)
                 
-                # Ensure 2D shape
+                # Ensure 2D shape - force 2D conversion
                 if len(attention_map.shape) > 2:
                     attention_map = attention_map.squeeze()
+                    # If still not 2D after squeeze, force reshape
+                    if len(attention_map.shape) > 2:
+                        attention_map = attention_map.reshape(target_h, target_w)
                 elif len(attention_map.shape) == 1:
                     attention_map = attention_map.reshape(-1, 1)
+                elif len(attention_map.shape) == 0:
+                    attention_map = np.ones((target_h, target_w)) * 0.5
+                
+                # Final check: ensure it's exactly 2D
+                if len(attention_map.shape) != 2:
+                    logger.warning(f"Attention map for '{concept}' is not 2D: {attention_map.shape}, forcing 2D")
+                    attention_map = np.ones((target_h, target_w)) * 0.5
                 
                 # Normalize to 0-1 range
                 attention_map = (attention_map - attention_map.min()) / (attention_map.max() - attention_map.min() + 1e-8)
