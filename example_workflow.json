@@ -55,7 +55,9 @@
       "inputs": [
         {"name": "model", "type": "MODEL", "link": 2},
         {"name": "clip", "type": "CLIP", "link": 3},
-        {"name": "image", "type": "IMAGE", "link": 1}
+        {"name": "image", "type": "IMAGE", "link": 1},
+        {"name": "prompt", "type": "STRING", "link": null},
+        {"name": "concept_list", "type": "STRING", "link": null}
       ],
       "outputs": [
         {"name": "concept_maps", "type": "CONCEPT_MAPS", "links": [4, 5], "slot_index": 0},
