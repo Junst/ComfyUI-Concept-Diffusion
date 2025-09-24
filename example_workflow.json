@@ -64,7 +64,7 @@
         {"name": "visualized_image", "type": "IMAGE", "links": [6], "slot_index": 1}
       ],
       "properties": {"Node name for S&R": "ConceptAttentionNode"},
-      "widgets_values": ["Elderly woman character with white hair and a red dress holding a cane and accompanied by a small white cat on her shoulder. Cartoon style with smooth lines and exaggerated facial features offering a whimsical and friendly appearance. Her name is abae.", 20, 0]
+      "widgets_values": ["Elderly woman character with white hair and a red dress holding a cane and accompanied by a small white cat on her shoulder. Cartoon style with smooth lines and exaggerated facial features offering a whimsical and friendly appearance. Her name is abae.", "woman, cat, white, lines, cane", 20, 0]
     },
     {
       "id": 4,
