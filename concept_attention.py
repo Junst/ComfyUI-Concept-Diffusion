@@ -606,6 +606,10 @@ class ConceptAttention:
             logger.info(f"📊 Attention output keys: {list(self.attention_outputs.keys())}")
             
             return self.attention_outputs
+        
+        except Exception as e:
+            logger.error(f"❌ Attention capture failed: {e}")
+            raise RuntimeError(f"Failed to capture attention outputs: {e}")
 
 
 class ConceptAttentionProcessor:
