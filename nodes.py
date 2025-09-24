@@ -65,8 +65,11 @@ class ConceptAttentionNode:
             print(f"DEBUG: Model type: {type(model)}")
             print(f"DEBUG: Model attributes: {[attr for attr in dir(model) if not attr.startswith('_')]}")
             
-            # Check if model has diffusion_model attribute (DiffusionModelLoader)
-            if hasattr(model, 'diffusion_model'):
+            # Check if model has model attribute (ModelPatcher from DiffusionModelLoader)
+            if hasattr(model, 'model'):
+                print(f"DEBUG: Using ModelPatcher - model.model: {type(model.model)}")
+                actual_model = model.model
+            elif hasattr(model, 'diffusion_model'):
                 print(f"DEBUG: Using DiffusionModelLoader - model.diffusion_model: {type(model.diffusion_model)}")
                 actual_model = model.diffusion_model
             else:
