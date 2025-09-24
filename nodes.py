@@ -9,6 +9,45 @@ import logging
 from typing import Dict, List, Tuple, Any
 from .concept_attention import ConceptAttentionProcessor
 
+def to_preview_image(arr_1d_or_2d, target_hw=None):
+    """
+    arr_1d_or_2d: (N,) 또는 (h,w) float/np.uint8 등
+    target_hw: (H, W)로 리사이즈하고 싶으면 지정
+    return: (H, W, 3) float32, 0..1
+    """
+    arr = np.asarray(arr_1d_or_2d)
+
+    # 1) 1D 벡터면 정사각형으로 리쉐이프 (4096→64x64, 1024→32x32 등)
+    if arr.ndim == 1:
+        n = arr.shape[0]
+        side = int(np.sqrt(n))
+        if side * side != n:  # 완전 제곱수가 아니면 2D로 바꿀 수 없음
+            # 가장 가까운 제곱수로 패딩
+            next_side = int(np.ceil(np.sqrt(n)))
+            pad = next_side * next_side - n
+            arr = np.pad(arr, (0, pad))
+            side = next_side
+        arr = arr.reshape(side, side)
+
+    # 2) 2D가 됐으니 0..1로 정규화
+    arr = arr.astype(np.float32)
+    mn, mx = float(arr.min()), float(arr.max())
+    if mx > mn:
+        arr = (arr - mn) / (mx - mn)
+    else:
+        arr = np.zeros_like(arr, dtype=np.float32)
+
+    # 3) 필요하면 원본 이미지 크기(H,W)로 업샘플
+    if target_hw is not None:
+        H, W = target_hw
+        arr_u8 = (arr * 255.0).astype(np.uint8)
+        arr_u8 = np.array(Image.fromarray(arr_u8).resize((W, H), Image.BILINEAR))
+        arr = arr_u8.astype(np.float32) / 255.0
+
+    # 4) 3채널로 스택 (그레이스케일을 RGB로)
+    arr_rgb = np.stack([arr, arr, arr], axis=-1).astype(np.float32)  # (H,W,3), 0..1
+    return arr_rgb
+
 logger = logging.getLogger(__name__)
 
 class ConceptAttentionNode:
@@ -77,14 +116,14 @@ class ConceptAttentionNode:
     
     def _convert_to_comfyui_format(self, concept_maps: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
-        Convert concept maps to ComfyUI format.
+        Convert concept maps to ComfyUI format using to_preview_image.
         """
         try:
             if not concept_maps:
                 logger.warning("WARNING: saliency_maps is empty, returning empty ConceptMaps")
                 return {}
             
-            # Simple conversion - just return the concept maps
+            # Use to_preview_image for robust conversion
             saliency_maps = {}
             for concept, attention_map in concept_maps.items():
                 try:
@@ -92,39 +131,21 @@ class ConceptAttentionNode:
                     if isinstance(attention_map, torch.Tensor):
                         attention_map = attention_map.cpu().numpy()
                     
-                    # Ensure it's a numpy array
-                    if not isinstance(attention_map, np.ndarray):
-                        attention_map = np.array(attention_map)
+                    # Use to_preview_image to handle all conversion cases
+                    # This function handles 1D, 2D, 3D+ arrays and converts to proper format
+                    preview_img = to_preview_image(attention_map, target_hw=(1024, 1024))
                     
-                    # Force 2D conversion - completely new approach
-                    if len(attention_map.shape) > 2:
-                        # If 3D or higher, take the first 2 dimensions
-                        attention_map = attention_map.reshape(attention_map.shape[-2], attention_map.shape[-1])
-                    elif len(attention_map.shape) == 1:
-                        # If 1D, create a square 2D array
-                        size = int(np.sqrt(len(attention_map)))
-                        if size * size == len(attention_map):
-                            attention_map = attention_map.reshape(size, size)
-                        else:
-                            attention_map = np.ones((32, 32)) * 0.5
-                    elif len(attention_map.shape) == 0:
-                        # If 0D, create a default 2D array
-                        attention_map = np.ones((32, 32)) * 0.5
+                    # Convert back to 2D for saliency map (take first channel)
+                    saliency_map = preview_img[:, :, 0]  # (H, W)
                     
-                    # Final validation: ensure it's exactly 2D
-                    if len(attention_map.shape) != 2:
-                        logger.warning(f"Attention map for '{concept}' is not 2D: {attention_map.shape}, creating fallback")
-                        attention_map = np.ones((32, 32)) * 0.5
-                    
-                    # Normalize to 0-1 range
-                    attention_map = (attention_map - attention_map.min()) / (attention_map.max() - attention_map.min() + 1e-8)
-                    
-                    saliency_maps[concept] = attention_map
+                    saliency_maps[concept] = saliency_map
                     
                 except Exception as e:
                     logger.error(f"Error processing concept '{concept}': {e}")
-                    # Create fallback
-                    saliency_maps[concept] = np.ones((32, 32)) * 0.5
+                    # Create fallback using to_preview_image
+                    fallback = np.ones((32, 32)) * 0.5
+                    preview_img = to_preview_image(fallback, target_hw=(1024, 1024))
+                    saliency_maps[concept] = preview_img[:, :, 0]
             
             logger.info(f"DEBUG: Converted concept_maps with keys: {list(saliency_maps.keys())}")
             return saliency_maps
@@ -178,30 +199,11 @@ class ConceptAttentionNode:
                     if isinstance(attention_map, torch.Tensor):
                         attention_map = attention_map.cpu().numpy()
                     
-                    # Ensure attention_map is 2D
-                    if len(attention_map.shape) > 2:
-                        attention_map = attention_map.squeeze()
-                    elif len(attention_map.shape) == 1:
-                        attention_map = attention_map.reshape(-1, 1)
+                    # Use to_preview_image for robust conversion
+                    preview_img = to_preview_image(attention_map, target_hw=(img_np.shape[0], img_np.shape[1]))
                     
-                    # Final check: ensure it's exactly 2D
-                    if len(attention_map.shape) != 2:
-                        logger.warning(f"Attention map for '{concept}' is not 2D: {attention_map.shape}, creating fallback")
-                        attention_map = np.ones((img_np.shape[0], img_np.shape[1])) * 0.5
-                    
-                    # Normalize to 0-255 range for PIL
-                    attention_map = (attention_map - attention_map.min()) / (attention_map.max() - attention_map.min() + 1e-8)
-                    attention_map = (attention_map * 255).astype(np.uint8)
-                    
-                    # Ensure it's still 2D after normalization
-                    if len(attention_map.shape) != 2:
-                        logger.warning(f"Attention map for '{concept}' is not 2D after normalization: {attention_map.shape}, creating fallback")
-                        attention_map = np.ones((img_np.shape[0], img_np.shape[1]), dtype=np.uint8) * 128
-                    
-                    # Resize attention map to image size
-                    attention_resized = np.array(Image.fromarray(attention_map).resize(
-                        (img_np.shape[1], img_np.shape[0]), Image.BILINEAR
-                    ))
+                    # Use the first channel as attention map
+                    attention_resized = preview_img[:, :, 0]
                     
                     # Normalize back to 0-1 range
                     attention_resized = attention_resized.astype(np.float32) / 255.0
