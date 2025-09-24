@@ -67,30 +67,48 @@ class ConceptAttention:
             latent_height = max(height // 8, 32)
             latent_width = max(width // 8, 32)
             
-            # Create inputs for Flux model - ensure 3D tensors
-            # Flux model expects 3D tensors: [batch, seq, dim]
+            # Create inputs for Flux model - ensure compatible dimensions
+            # Flux model expects compatible tensor dimensions
             x = torch.randn(batch_size, latent_height * latent_width, 4, device=self.device)
             timestep_tensor = torch.tensor([timestep], device=self.device)
             
-            # Create context from concept embeddings - ensure 3D format
+            # Create context from concept embeddings - ensure compatible dimensions
             if len(concept_embeddings.shape) == 3:  # [batch, seq, dim]
-                context = concept_embeddings  # Already 3D
+                # Reshape to match x dimensions: [batch, seq, 4]
+                batch, seq, dim = concept_embeddings.shape
+                if dim != 4:
+                    # Project to 4 dimensions to match x
+                    context = F.linear(concept_embeddings, torch.randn(4, dim, device=self.device))
+                else:
+                    context = concept_embeddings
             elif len(concept_embeddings.shape) == 4:  # [batch, seq, dim1, dim2]
-                # Flatten to 3D: [batch, seq, dim1*dim2]
+                # Flatten and project to 4D
                 batch, seq, dim1, dim2 = concept_embeddings.shape
-                context = concept_embeddings.view(batch, seq, dim1 * dim2)
+                flattened = concept_embeddings.view(batch, seq, dim1 * dim2)
+                if dim1 * dim2 != 4:
+                    context = F.linear(flattened, torch.randn(4, dim1 * dim2, device=self.device))
+                else:
+                    context = flattened
             elif len(concept_embeddings.shape) == 5:  # [batch, batch, seq, dim1, dim2]
                 # Remove extra batch dimension and flatten
                 context = concept_embeddings.squeeze(0)  # Remove first batch dimension
                 if len(context.shape) == 4:  # [seq, dim1, dim2]
                     seq, dim1, dim2 = context.shape
-                    context = context.view(1, seq, dim1 * dim2)  # Add batch dimension back
+                    flattened = context.view(1, seq, dim1 * dim2)
+                    if dim1 * dim2 != 4:
+                        context = F.linear(flattened, torch.randn(4, dim1 * dim2, device=self.device))
+                    else:
+                        context = flattened
             else:
-                # For other shapes, try to reshape to 3D
+                # For other shapes, try to reshape to 3D and project
                 if len(concept_embeddings.shape) == 2:  # [seq, dim]
                     context = concept_embeddings.unsqueeze(0)  # [1, seq, dim]
+                    if context.shape[-1] != 4:
+                        context = F.linear(context, torch.randn(4, context.shape[-1], device=self.device))
                 else:
                     context = concept_embeddings.unsqueeze(0)  # Add batch dimension if needed
+                    if context.shape[-1] != 4:
+                        context = F.linear(context, torch.randn(4, context.shape[-1], device=self.device))
             
             # Create guidance vector
             y = torch.zeros(batch_size, 512, device=self.device)
