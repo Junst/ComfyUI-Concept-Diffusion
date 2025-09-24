@@ -67,7 +67,7 @@ class ConceptAttention:
             latent_height = max(height // 8, 32)
             latent_width = max(width // 8, 32)
             
-            # Create dummy inputs for Flux model
+            # Create dummy inputs for Flux model - match context dimensions
             x = torch.randn(batch_size, 4, latent_height, latent_width, device=self.device)
             timestep_tensor = torch.tensor([timestep], device=self.device)
             
@@ -88,6 +88,16 @@ class ConceptAttention:
                     context = concept_embeddings.unsqueeze(0).unsqueeze(2)  # [1, seq, 1, dim]
                 else:
                     context = concept_embeddings.unsqueeze(0)  # Add batch dimension if needed
+            
+            # Ensure context spatial dimensions match x dimensions
+            if context.shape[2] != latent_height or context.shape[3] != latent_width:
+                # Resize context to match x dimensions
+                context = F.interpolate(
+                    context.view(context.shape[0], context.shape[1], context.shape[2], context.shape[3]),
+                    size=(latent_height, latent_width),
+                    mode='bilinear',
+                    align_corners=False
+                )
             
             # Create guidance vector
             y = torch.zeros(batch_size, 512, device=self.device)
