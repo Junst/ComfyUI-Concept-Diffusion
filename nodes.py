@@ -116,10 +116,16 @@ class ConceptAttentionNode:
             # Convert image to numpy if needed
             if isinstance(image, torch.Tensor):
                 img_np = image.squeeze().cpu().numpy()
-                if img_np.shape[0] == 3:  # CHW format
+                if len(img_np.shape) == 3 and img_np.shape[0] == 3:  # CHW format
                     img_np = np.transpose(img_np, (1, 2, 0))
             else:
                 img_np = np.array(image)
+            
+            # Ensure image is in correct format
+            if len(img_np.shape) == 2:  # Grayscale
+                img_np = np.stack([img_np] * 3, axis=-1)
+            elif len(img_np.shape) == 3 and img_np.shape[-1] == 1:  # Single channel
+                img_np = np.repeat(img_np, 3, axis=-1)
             
             # Normalize image to 0-1 range
             img_np = (img_np - img_np.min()) / (img_np.max() - img_np.min() + 1e-8)
