@@ -734,9 +734,9 @@ class ConceptAttention:
             # If no attention captured, try running actual model forward pass
             if not self.attention_outputs:
                 logger.info("🔍 No attention captured from direct execution, trying model forward pass")
-                logger.info(f"🔍 Model type: {type(model)}")
-                logger.info(f"🔍 Model available: {model is not None}")
-                self._try_model_forward_pass(model, image)
+                logger.info(f"🔍 Model type: {type(self.model)}")
+                logger.info(f"🔍 Model available: {self.model is not None}")
+                self._try_model_forward_pass(self.model, self.image)
             
             # No fallback - require real attention capture
             if not self.attention_outputs:
