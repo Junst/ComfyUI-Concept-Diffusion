@@ -42,6 +42,14 @@ class ConceptAttentionNode:
         Generate concept attention maps using simplified approach.
         """
         try:
+            # Convert concept_list string to list
+            if isinstance(concept_list, str):
+                concept_list = [concept.strip() for concept in concept_list.split(',')]
+            elif isinstance(concept_list, list):
+                concept_list = [str(concept).strip() for concept in concept_list]
+            else:
+                concept_list = []
+            
             logger.info(f"DEBUG: Extracted concepts from prompt: {concept_list}")
             
             # Initialize processor if not exists
