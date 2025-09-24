@@ -419,7 +419,10 @@ class ConceptAttention:
                 logger.info(f"Concept attention similarity shape: {similarity.shape}")
                 
                 # Resize to target image dimensions
-                target_h, target_w = image_shape[:2]
+                if len(image_shape) == 3:  # [H, W, C]
+                    target_h, target_w = image_shape[:2]
+                else:  # [H, W]
+                    target_h, target_w = image_shape
                 logger.info(f"Target image dimensions: {target_h}x{target_w}")
                 
                 # Ensure similarity is in correct format for interpolation
@@ -451,7 +454,10 @@ class ConceptAttention:
                 logger.info(f"Resized similarity shape: {resized_similarity.shape}")
                 
                 # Convert to concept map
-                concept_map = resized_similarity.squeeze(0).squeeze(0)  # Remove batch and channel dimensions
+                if resized_similarity.shape[1] == 1:  # [1, 1, H, W]
+                    concept_map = resized_similarity.squeeze(0).squeeze(0)  # Remove batch and channel dimensions
+                else:  # [1, C, H, W] or other format
+                    concept_map = resized_similarity.squeeze(0).mean(dim=0)  # Average across channels
                 
                 # Normalize concept map using percentile-based normalization
                 concept_map_flat = concept_map.flatten()
