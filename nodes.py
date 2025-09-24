@@ -7,7 +7,7 @@ import numpy as np
 from PIL import Image
 import logging
 from typing import Dict, List, Tuple, Any
-from concept_attention import ConceptAttentionProcessor
+from .concept_attention import ConceptAttentionProcessor
 
 logger = logging.getLogger(__name__)
 
