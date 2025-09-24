@@ -68,16 +68,28 @@ class ConceptAttentionNode:
             text_encoder = None
             tokenizer = None
             
+            print(f"DEBUG: clip type: {type(clip)}")
             if clip is not None:
+                print(f"DEBUG: clip attributes: {dir(clip)}")
+                
                 if hasattr(clip, 'cond_stage_model'):
                     text_encoder = clip.cond_stage_model
+                    print(f"DEBUG: Using cond_stage_model as text_encoder: {type(text_encoder)}")
                 elif hasattr(clip, 'text_encoder'):
                     text_encoder = clip.text_encoder
+                    print(f"DEBUG: Using text_encoder: {type(text_encoder)}")
                 
                 if hasattr(clip, 'tokenizer'):
                     tokenizer = clip.tokenizer
+                    print(f"DEBUG: Using clip.tokenizer: {type(tokenizer)}")
                 elif hasattr(clip, 'cond_stage_model') and hasattr(clip.cond_stage_model, 'tokenizer'):
                     tokenizer = clip.cond_stage_model.tokenizer
+                    print(f"DEBUG: Using cond_stage_model.tokenizer: {type(tokenizer)}")
+                
+                print(f"DEBUG: Final text_encoder: {text_encoder}")
+                print(f"DEBUG: Final tokenizer: {tokenizer}")
+            else:
+                print("DEBUG: clip is None!")
             
             # Process image
             saliency_maps = processor.process_image(
