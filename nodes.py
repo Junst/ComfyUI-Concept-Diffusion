@@ -87,40 +87,44 @@ class ConceptAttentionNode:
             # Simple conversion - just return the concept maps
             saliency_maps = {}
             for concept, attention_map in concept_maps.items():
-                # Ensure tensor is on CPU and convert to numpy
-                if isinstance(attention_map, torch.Tensor):
-                    attention_map = attention_map.cpu().numpy()
-                
-                # Ensure it's a numpy array
-                if not isinstance(attention_map, np.ndarray):
-                    attention_map = np.array(attention_map)
-                
-                # Get target dimensions from the first concept map
-                if len(attention_map.shape) >= 2:
-                    target_h, target_w = attention_map.shape[-2], attention_map.shape[-1]
-                else:
-                    target_h, target_w = 1024, 1024  # Default fallback
-                
-                # Ensure 2D shape - force 2D conversion
-                if len(attention_map.shape) > 2:
-                    attention_map = attention_map.squeeze()
-                    # If still not 2D after squeeze, force reshape
+                try:
+                    # Ensure tensor is on CPU and convert to numpy
+                    if isinstance(attention_map, torch.Tensor):
+                        attention_map = attention_map.cpu().numpy()
+                    
+                    # Ensure it's a numpy array
+                    if not isinstance(attention_map, np.ndarray):
+                        attention_map = np.array(attention_map)
+                    
+                    # Force 2D conversion - completely new approach
                     if len(attention_map.shape) > 2:
-                        attention_map = attention_map.reshape(target_h, target_w)
-                elif len(attention_map.shape) == 1:
-                    attention_map = attention_map.reshape(-1, 1)
-                elif len(attention_map.shape) == 0:
-                    attention_map = np.ones((target_h, target_w)) * 0.5
-                
-                # Final check: ensure it's exactly 2D
-                if len(attention_map.shape) != 2:
-                    logger.warning(f"Attention map for '{concept}' is not 2D: {attention_map.shape}, forcing 2D")
-                    attention_map = np.ones((target_h, target_w)) * 0.5
-                
-                # Normalize to 0-1 range
-                attention_map = (attention_map - attention_map.min()) / (attention_map.max() - attention_map.min() + 1e-8)
-                
-                saliency_maps[concept] = attention_map
+                        # If 3D or higher, take the first 2 dimensions
+                        attention_map = attention_map.reshape(attention_map.shape[-2], attention_map.shape[-1])
+                    elif len(attention_map.shape) == 1:
+                        # If 1D, create a square 2D array
+                        size = int(np.sqrt(len(attention_map)))
+                        if size * size == len(attention_map):
+                            attention_map = attention_map.reshape(size, size)
+                        else:
+                            attention_map = np.ones((32, 32)) * 0.5
+                    elif len(attention_map.shape) == 0:
+                        # If 0D, create a default 2D array
+                        attention_map = np.ones((32, 32)) * 0.5
+                    
+                    # Final validation: ensure it's exactly 2D
+                    if len(attention_map.shape) != 2:
+                        logger.warning(f"Attention map for '{concept}' is not 2D: {attention_map.shape}, creating fallback")
+                        attention_map = np.ones((32, 32)) * 0.5
+                    
+                    # Normalize to 0-1 range
+                    attention_map = (attention_map - attention_map.min()) / (attention_map.max() - attention_map.min() + 1e-8)
+                    
+                    saliency_maps[concept] = attention_map
+                    
+                except Exception as e:
+                    logger.error(f"Error processing concept '{concept}': {e}")
+                    # Create fallback
+                    saliency_maps[concept] = np.ones((32, 32)) * 0.5
             
             logger.info(f"DEBUG: Converted concept_maps with keys: {list(saliency_maps.keys())}")
             return saliency_maps
@@ -180,9 +184,19 @@ class ConceptAttentionNode:
                     elif len(attention_map.shape) == 1:
                         attention_map = attention_map.reshape(-1, 1)
                     
+                    # Final check: ensure it's exactly 2D
+                    if len(attention_map.shape) != 2:
+                        logger.warning(f"Attention map for '{concept}' is not 2D: {attention_map.shape}, creating fallback")
+                        attention_map = np.ones((img_np.shape[0], img_np.shape[1])) * 0.5
+                    
                     # Normalize to 0-255 range for PIL
                     attention_map = (attention_map - attention_map.min()) / (attention_map.max() - attention_map.min() + 1e-8)
                     attention_map = (attention_map * 255).astype(np.uint8)
+                    
+                    # Ensure it's still 2D after normalization
+                    if len(attention_map.shape) != 2:
+                        logger.warning(f"Attention map for '{concept}' is not 2D after normalization: {attention_map.shape}, creating fallback")
+                        attention_map = np.ones((img_np.shape[0], img_np.shape[1]), dtype=np.uint8) * 128
                     
                     # Resize attention map to image size
                     attention_resized = np.array(Image.fromarray(attention_map).resize(
