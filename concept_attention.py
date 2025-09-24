@@ -233,6 +233,14 @@ class ConceptAttention:
                     elif len(concept_map.shape) == 0:
                         concept_map = torch.ones(target_h, target_w, device=self.device)
                     
+                    # Force 2D shape - remove any extra dimensions
+                    while len(concept_map.shape) > 2:
+                        concept_map = concept_map.squeeze()
+                    
+                    # If still not 2D, create proper 2D tensor
+                    if len(concept_map.shape) != 2:
+                        concept_map = torch.ones(target_h, target_w, device=self.device) * concept_attention.mean()
+                    
                     concept_maps[concept] = concept_map
                     logger.info(f"Created concept map for '{concept}': {concept_map.shape}")
                 else:
