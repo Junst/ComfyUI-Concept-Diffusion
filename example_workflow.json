@@ -39,7 +39,8 @@
       "order": 2,
       "mode": 0,
       "outputs": [
-        {"name": "CLIP", "type": "CLIP", "links": [3], "slot_index": 0}
+        {"name": "CLIP", "type": "CLIP", "links": [3], "slot_index": 0},
+        {"name": "CLIP", "type": "CLIP", "links": [], "slot_index": 1}
       ],
       "properties": {"Node name for S&R": "DualCLIPLoader"},
       "widgets_values": ["clip_l.safetensors", "t5xxl_fp16.safetensors", "flux"]
