@@ -217,12 +217,31 @@ class ConceptAttention:
                     
                     # Resize to target image size
                     target_h, target_w = image_shape
+                    
+                    # Ensure proper tensor format for interpolation
+                    if len(concept_attention.shape) == 2:  # [H, W]
+                        # Add batch and channel dimensions: [1, 1, H, W]
+                        concept_attention_4d = concept_attention.unsqueeze(0).unsqueeze(0)
+                    elif len(concept_attention.shape) == 3:  # [B, H, W]
+                        # Add channel dimension: [B, 1, H, W]
+                        concept_attention_4d = concept_attention.unsqueeze(1)
+                    else:
+                        # Already 4D or other format
+                        concept_attention_4d = concept_attention
+                    
+                    # Resize using proper 4D format
                     concept_attention_resized = F.interpolate(
-                        concept_attention.unsqueeze(0).unsqueeze(0),
+                        concept_attention_4d,
                         size=(target_h, target_w),
                         mode='bilinear',
                         align_corners=False
-                    ).squeeze()
+                    )
+                    
+                    # Remove extra dimensions if needed
+                    if concept_attention_resized.shape[0] == 1:
+                        concept_attention_resized = concept_attention_resized.squeeze(0)
+                    if concept_attention_resized.shape[0] == 1:
+                        concept_attention_resized = concept_attention_resized.squeeze(0)
                     
                     concept_maps[concept] = concept_attention_resized
                     logger.info(f"Created concept map for '{concept}': {concept_attention_resized.shape}")
