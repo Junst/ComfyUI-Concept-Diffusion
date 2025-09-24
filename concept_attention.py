@@ -82,12 +82,22 @@ class ConceptAttention:
             
             # Run model forward pass to capture attention
             with torch.no_grad():
-                # Use the model's apply_model method
+                # Use the model's apply_model method (ComfyUI ModelPatcher)
                 if hasattr(self.model, 'apply_model'):
                     output = self.model.apply_model(x, timestep_tensor, context=context, y=y)
+                elif hasattr(self.model, 'model') and hasattr(self.model.model, 'apply_model'):
+                    # Nested model access
+                    output = self.model.model.apply_model(x, timestep_tensor, context=context, y=y)
                 else:
-                    # Fallback to direct forward
-                    output = self.model(x, timestep_tensor, context=context, y=y)
+                    # Try to access the underlying diffusion model
+                    if hasattr(self.model, 'model'):
+                        diffusion_model = self.model.model
+                        if hasattr(diffusion_model, 'apply_model'):
+                            output = diffusion_model.apply_model(x, timestep_tensor, context=context, y=y)
+                        else:
+                            raise RuntimeError("Cannot find apply_model method in model")
+                    else:
+                        raise RuntimeError("Cannot access model for forward pass")
                 
                 # Store the output as attention
                 self.attention_outputs['flux_output'] = output
