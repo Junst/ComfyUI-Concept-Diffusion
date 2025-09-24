@@ -279,14 +279,8 @@ class ConceptAttention:
             for concept in concepts:
                 # Check if text_encoder and tokenizer are valid
                 if text_encoder is None or tokenizer is None:
-                    logger.warning(f"Text encoder or tokenizer is None, creating fallback embedding for '{concept}'")
-                    # Create fallback embedding with proper dtype
-                    if hasattr(self.model, 'parameters'):
-                        params = list(self.model.parameters())
-                        model_dtype = params[0].dtype if params else torch.float32
-                    else:
-                        model_dtype = torch.float32
-                    embedding = torch.randn(1, 512, device=self.device, dtype=model_dtype)
+                    logger.error(f"❌ Text encoder or tokenizer is None for concept '{concept}'! Real text encoding is required.")
+                    raise RuntimeError(f"Text encoder and tokenizer are required for concept '{concept}'. No fallback allowed.")
                 else:
                     # Tokenize the concept
                     tokens = tokenizer(concept, return_tensors="pt", padding=True, truncation=True)
@@ -301,13 +295,8 @@ class ConceptAttention:
                         elif hasattr(text_encoder, 'encode'):
                             embedding = text_encoder.encode(tokens["input_ids"])
                         else:
-                            # Fallback: create dummy embedding with proper dtype
-                            if hasattr(self.model, 'parameters'):
-                                params = list(self.model.parameters())
-                                model_dtype = params[0].dtype if params else torch.float32
-                            else:
-                                model_dtype = torch.float32
-                            embedding = torch.randn(1, 512, device=self.device, dtype=model_dtype)
+                            logger.error(f"❌ Text encoder has no recognized methods for concept '{concept}'!")
+                            raise RuntimeError(f"Text encoder must have encode_text, forward, or encode method. No fallback allowed.")
                 
                 # Ensure embedding is on correct device and dtype
                 embedding = embedding.to(device=self.device)
@@ -316,15 +305,7 @@ class ConceptAttention:
                 
         except Exception as e:
             logger.error(f"Error extracting concept embeddings: {e}")
-            # Create dummy embeddings as fallback with proper dtype
-            if hasattr(self.model, 'parameters'):
-                params = list(self.model.parameters())
-                model_dtype = params[0].dtype if params else torch.float32
-            else:
-                model_dtype = torch.float32
-            
-            for concept in concepts:
-                concept_embeddings[concept] = torch.randn(1, 512, device=self.device, dtype=model_dtype)
+            raise RuntimeError(f"Failed to extract concept embeddings: {e}. No fallback allowed.")
         
         return concept_embeddings
     
@@ -615,97 +596,16 @@ class ConceptAttention:
                                 except Exception as attn_error:
                                     logger.debug(f"Direct attention execution failed in block {block_idx}: {attn_error}")
             
-            # If still no outputs, try to create fallback attention outputs from model weights
+            # No fallback - require real attention capture
             if not self.attention_outputs:
-                logger.info("🔍 Creating fallback attention outputs from model weights")
-                
-                if hasattr(actual_model, 'double_blocks'):
-                    double_blocks = actual_model.double_blocks
-                    
-                    for block_idx in [15, 16, 17, 18]:
-                        if block_idx < len(double_blocks):
-                            block = double_blocks[block_idx]
-                            
-                            if hasattr(block, 'img_attn'):
-                                img_attn = block.img_attn
-                                
-                                # Create fallback attention output using model weights
-                                if hasattr(img_attn, 'qkv') and hasattr(img_attn.qkv, 'weight'):
-                                    # Get the weight matrix
-                                    weight = img_attn.qkv.weight
-                                    logger.info(f"Creating fallback attention from weight shape: {weight.shape}")
-                                    
-                                    # Create a dummy input and compute output
-                                    dummy_input = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
-                                    
-                                    with torch.no_grad():
-                                        # Compute output using the weight matrix
-                                        fallback_output = torch.matmul(dummy_input, weight.t())
-                                        logger.info(f"🚀 Fallback attention output created, shape: {fallback_output.shape}")
-                                        
-                                        # Store the fallback output
-                                        hook_key = f"fallback_attention_block_{block_idx}_{id(img_attn)}"
-                                        self.attention_outputs[hook_key] = fallback_output
-                                        logger.info(f"📝 Stored fallback attention output: {hook_key}")
-                                        
-                                        # Break after first successful block
-                                        break
-                
-                # If still no outputs, create a simple fallback
-                if not self.attention_outputs:
-                    logger.info("🔍 Creating simple fallback attention output")
-                    fallback_output = torch.randn(1, 1024, 256, device=self.device, dtype=torch.float32)
-                    hook_key = f"simple_fallback_attention"
-                    self.attention_outputs[hook_key] = fallback_output
-                    logger.info(f"📝 Stored simple fallback attention output: {hook_key}")
+                logger.error("❌ No attention outputs captured! Real attention capture is required.")
+                raise RuntimeError("Failed to capture real attention outputs. No fallback allowed.")
             
-            # If still no outputs, try to use ComfyUI's patches_replace system
-            if not self.attention_outputs:
-                logger.info("🔍 Trying ComfyUI patches_replace system as fallback")
-                
-                if hasattr(actual_model, 'apply_model'):
-                    # Create proper inputs for Flux model
-                    # Flux model expects: x (latent), t (timestep), c_crossattn (context), y (guidance)
-                    x = torch.randn(1, 4, 64, 64, device=self.device, dtype=model_dtype)
-                    t = torch.tensor([500], device=self.device, dtype=torch.long)
-                    c_crossattn = torch.randn(1, 77, 2048, device=self.device, dtype=model_dtype)
-                    y = torch.randn(1, 512, device=self.device, dtype=model_dtype)
-                    
-                    logger.info(f"Running apply_model with patches_replace system")
-                    logger.info(f"Inputs: x={x.shape}, t={t.shape}, c_crossattn={c_crossattn.shape}, y={y.shape}")
-                    
-                    # Create a custom transformer_options with patches_replace
-                    transformer_options = {
-                        "patches_replace": {
-                            "dit": {
-                                ("double_block", 15): self._create_attention_capture_wrapper(15),
-                                ("double_block", 16): self._create_attention_capture_wrapper(16),
-                                ("double_block", 17): self._create_attention_capture_wrapper(17),
-                                ("double_block", 18): self._create_attention_capture_wrapper(18),
-                            }
-                        }
-                    }
-                    
-                    with torch.no_grad():
-                        output = actual_model.apply_model(x, t, c_crossattn=c_crossattn, y=y, transformer_options=transformer_options)
-                        logger.info(f"🚀 apply_model with patches_replace completed, output shape: {output.shape}")
-                        
-                        # Store the output as attention output
-                        hook_key = f"patches_replace_output_{id(actual_model)}"
-                        self.attention_outputs[hook_key] = output
-                        logger.info(f"📝 Stored patches_replace output: {hook_key}")
-                    
-        except Exception as patches_error:
-            logger.debug(f"Attention capture failed: {patches_error}")
-        
-        # Log total attention outputs captured
-        logger.info(f"📊 Total attention outputs captured: {len(self.attention_outputs)}")
-        if self.attention_outputs:
+            # Log final results
+            logger.info(f"📊 Total attention outputs captured: {len(self.attention_outputs)}")
             logger.info(f"📊 Attention output keys: {list(self.attention_outputs.keys())}")
-        else:
-            logger.warning("⚠️ No attention outputs captured!")
-        
-        return self.attention_outputs
+            
+            return self.attention_outputs
 
 
 class ConceptAttentionProcessor:
