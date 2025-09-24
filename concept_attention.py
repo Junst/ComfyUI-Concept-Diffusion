@@ -796,7 +796,9 @@ class ConceptAttention:
                 logger.warning("⚠️ Forward pass completed but no attention outputs captured")
                 
         except Exception as e:
-            logger.debug(f"Model forward pass failed: {e}")
+            logger.error(f"❌ Model forward pass failed: {e}")
+            logger.error(f"❌ Exception type: {type(e)}")
+            logger.error(f"❌ Exception args: {e.args}")
             # Don't raise error here, just log and continue
 
 
