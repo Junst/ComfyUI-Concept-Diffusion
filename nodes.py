@@ -91,6 +91,16 @@ class ConceptAttentionNode:
                 if isinstance(attention_map, torch.Tensor):
                     attention_map = attention_map.cpu().numpy()
                 
+                # Ensure it's a numpy array
+                if not isinstance(attention_map, np.ndarray):
+                    attention_map = np.array(attention_map)
+                
+                # Ensure 2D shape
+                if len(attention_map.shape) > 2:
+                    attention_map = attention_map.squeeze()
+                elif len(attention_map.shape) == 1:
+                    attention_map = attention_map.reshape(-1, 1)
+                
                 # Normalize to 0-1 range
                 attention_map = (attention_map - attention_map.min()) / (attention_map.max() - attention_map.min() + 1e-8)
                 
