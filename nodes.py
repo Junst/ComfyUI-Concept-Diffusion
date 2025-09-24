@@ -61,8 +61,20 @@ class ConceptAttentionNode:
         device = comfy.model_management.get_torch_device()
         
         try:
-            # Initialize ConceptAttention processor
-            processor = ConceptAttentionProcessor(model, device)
+            # Debug model structure
+            print(f"DEBUG: Model type: {type(model)}")
+            print(f"DEBUG: Model attributes: {[attr for attr in dir(model) if not attr.startswith('_')]}")
+            
+            # Check if model has diffusion_model attribute (DiffusionModelLoader)
+            if hasattr(model, 'diffusion_model'):
+                print(f"DEBUG: Using DiffusionModelLoader - model.diffusion_model: {type(model.diffusion_model)}")
+                actual_model = model.diffusion_model
+            else:
+                print(f"DEBUG: Using CheckpointLoaderSimple - model: {type(model)}")
+                actual_model = model
+            
+            # Initialize ConceptAttention processor with actual model
+            processor = ConceptAttentionProcessor(actual_model, device)
             
             # Use ComfyUI CLIP directly (from checkpoint loader)
             text_encoder = clip

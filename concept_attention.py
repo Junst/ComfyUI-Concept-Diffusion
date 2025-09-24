@@ -640,6 +640,10 @@ class ConceptAttention:
         """
         Extract attention outputs using patches_replace system.
         """
+        logger.info(f"🔍 extract_attention_outputs called, self.model: {self.model}")
+        logger.info(f"🔍 self.model type: {type(self.model)}")
+        logger.info(f"🔍 self.model is None: {self.model is None}")
+        
         if not self.model:
             logger.warning("No model available for attention extraction")
             return self.attention_outputs
