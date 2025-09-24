@@ -727,6 +727,11 @@ class ConceptAttention:
                                 except Exception as attn_error:
                                     logger.debug(f"Direct attention execution failed in block {block_idx}: {attn_error}")
             
+            # If no attention captured, try running actual model forward pass
+            if not self.attention_outputs:
+                logger.info("🔍 No attention captured from direct execution, trying model forward pass")
+                self._try_model_forward_pass(model, image)
+            
             # No fallback - require real attention capture
             if not self.attention_outputs:
                 logger.error("❌ No attention outputs captured! Real attention capture is required.")
@@ -741,6 +746,58 @@ class ConceptAttention:
         except Exception as e:
             logger.error(f"❌ Attention capture failed: {e}")
             raise RuntimeError(f"Failed to capture attention outputs: {e}")
+    
+    def _try_model_forward_pass(self, model, image):
+        """
+        Try to run actual model forward pass to trigger attention hooks.
+        """
+        try:
+            logger.info("🔍 Attempting model forward pass to trigger attention hooks")
+            
+            # Get model device and dtype
+            device = next(model.parameters()).device
+            dtype = next(model.parameters()).dtype
+            
+            # Prepare inputs for Flux model
+            batch_size = 1
+            height, width = image.shape[1], image.shape[2]
+            
+            # Create dummy inputs for Flux model
+            # Flux expects: x (latent), timestep, context (text), y (classifier-free guidance)
+            x = torch.randn(batch_size, 4, height//8, width//8, device=device, dtype=dtype)
+            timestep = torch.tensor([100], device=device, dtype=torch.long)
+            context = torch.randn(batch_size, 77, 2048, device=device, dtype=dtype)  # Text context
+            y = torch.randn(batch_size, 512, device=device, dtype=dtype)  # Classifier-free guidance
+            
+            logger.info(f"🔍 Running Flux model forward pass with inputs:")
+            logger.info(f"  - x: {x.shape}")
+            logger.info(f"  - timestep: {timestep.shape}")
+            logger.info(f"  - context: {context.shape}")
+            logger.info(f"  - y: {y.shape}")
+            
+            # Run model forward pass
+            with torch.no_grad():
+                if hasattr(model, 'apply_model'):
+                    # Use apply_model method
+                    output = model.apply_model(x, timestep, c_crossattn=context, y=y)
+                    logger.info(f"📝 Model forward pass completed, output shape: {output.shape}")
+                elif hasattr(model, 'forward'):
+                    # Use direct forward method
+                    output = model(x, timestep, context=context, y=y)
+                    logger.info(f"📝 Model forward pass completed, output shape: {output.shape}")
+                else:
+                    logger.warning("🔍 Model has no apply_model or forward method")
+                    return
+            
+            # Check if attention outputs were captured
+            if self.attention_outputs:
+                logger.info(f"✅ Attention hooks triggered during forward pass! Captured {len(self.attention_outputs)} outputs")
+            else:
+                logger.warning("⚠️ Forward pass completed but no attention outputs captured")
+                
+        except Exception as e:
+            logger.debug(f"Model forward pass failed: {e}")
+            # Don't raise error here, just log and continue
 
 
 class ConceptAttentionProcessor:
