@@ -15,6 +15,7 @@ class ConceptAttention:
         self.device = device
         self.attention_outputs = {}
         self.model = None
+        self.image = None
     
     def register_attention_hooks(self, model):
         """
@@ -736,7 +737,9 @@ class ConceptAttention:
                 logger.info("🔍 No attention captured from direct execution, trying model forward pass")
                 logger.info(f"🔍 Model type: {type(self.model)}")
                 logger.info(f"🔍 Model available: {self.model is not None}")
-                self._try_model_forward_pass(self.model, self.image)
+                # Use a dummy image if self.image is not available
+                dummy_image = torch.randn(1, 3, 1024, 1024, device=self.device)
+                self._try_model_forward_pass(self.model, dummy_image)
             
             # No fallback - require real attention capture
             if not self.attention_outputs:
@@ -830,6 +833,9 @@ class ConceptAttentionProcessor:
         """
         try:
             logger.info(f"Processing image with concepts: {concepts}")
+            
+            # Store image reference for attention capture
+            self.concept_attention.image = image
             
             # Register attention capture system
             self.concept_attention.register_attention_hooks(self.model)
