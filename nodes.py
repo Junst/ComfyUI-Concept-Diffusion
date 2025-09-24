@@ -69,30 +69,63 @@ class ConceptAttentionNode:
             tokenizer = None
             
             if clip is not None:
-                # ComfyUI CLIP structure: clip.cond_stage_model is the text encoder
+                print(f"DEBUG: clip type: {type(clip)}")
+                print(f"DEBUG: clip attributes: {[attr for attr in dir(clip) if not attr.startswith('_')]}")
+                
+                # ComfyUI CLIP structure analysis
+                text_encoder = None
+                tokenizer = None
+                
+                # Method 1: Check cond_stage_model
                 if hasattr(clip, 'cond_stage_model'):
-                    text_encoder = clip.cond_stage_model
-                    print(f"DEBUG: Using cond_stage_model as text_encoder: {type(text_encoder)}")
+                    cond_model = clip.cond_stage_model
+                    print(f"DEBUG: cond_stage_model type: {type(cond_model)}")
+                    print(f"DEBUG: cond_stage_model attributes: {[attr for attr in dir(cond_model) if not attr.startswith('_')]}")
+                    
+                    text_encoder = cond_model
                     
                     # Try to get tokenizer from cond_stage_model
-                    if hasattr(text_encoder, 'tokenizer'):
-                        tokenizer = text_encoder.tokenizer
-                        print(f"DEBUG: Using cond_stage_model.tokenizer: {type(tokenizer)}")
-                    elif hasattr(text_encoder, 'tokenizer_model'):
-                        tokenizer = text_encoder.tokenizer_model
-                        print(f"DEBUG: Using cond_stage_model.tokenizer_model: {type(tokenizer)}")
+                    if hasattr(cond_model, 'tokenizer'):
+                        tokenizer = cond_model.tokenizer
+                        print(f"DEBUG: Found cond_stage_model.tokenizer: {type(tokenizer)}")
+                    elif hasattr(cond_model, 'tokenizer_model'):
+                        tokenizer = cond_model.tokenizer_model
+                        print(f"DEBUG: Found cond_stage_model.tokenizer_model: {type(tokenizer)}")
+                    elif hasattr(cond_model, 'tokenizer_encoder'):
+                        tokenizer = cond_model.tokenizer_encoder
+                        print(f"DEBUG: Found cond_stage_model.tokenizer_encoder: {type(tokenizer)}")
                 
-                # Fallback: try direct clip attributes
-                if text_encoder is None and hasattr(clip, 'text_encoder'):
-                    text_encoder = clip.text_encoder
-                    print(f"DEBUG: Using clip.text_encoder: {type(text_encoder)}")
+                # Method 2: Check for text encoder directly
+                if text_encoder is None:
+                    for attr_name in ['text_encoder', 'encoder', 'model']:
+                        if hasattr(clip, attr_name):
+                            text_encoder = getattr(clip, attr_name)
+                            print(f"DEBUG: Found clip.{attr_name}: {type(text_encoder)}")
+                            break
                 
-                if tokenizer is None and hasattr(clip, 'tokenizer'):
-                    tokenizer = clip.tokenizer
-                    print(f"DEBUG: Using clip.tokenizer: {type(tokenizer)}")
+                # Method 3: Check for tokenizer directly
+                if tokenizer is None:
+                    for attr_name in ['tokenizer', 'tokenizer_model', 'tokenizer_encoder']:
+                        if hasattr(clip, attr_name):
+                            tokenizer = getattr(clip, attr_name)
+                            print(f"DEBUG: Found clip.{attr_name}: {type(tokenizer)}")
+                            break
                 
                 print(f"DEBUG: Final text_encoder: {text_encoder}")
                 print(f"DEBUG: Final tokenizer: {tokenizer}")
+                
+                # If still None, try to create from clip's internal structure
+                if text_encoder is None or tokenizer is None:
+                    print("DEBUG: Attempting to extract from clip's internal structure")
+                    if hasattr(clip, 'clip'):
+                        inner_clip = clip.clip
+                        print(f"DEBUG: Found inner clip: {type(inner_clip)}")
+                        if text_encoder is None and hasattr(inner_clip, 'encode_text'):
+                            text_encoder = inner_clip
+                            print(f"DEBUG: Using inner clip as text_encoder: {type(text_encoder)}")
+                        if tokenizer is None and hasattr(inner_clip, 'tokenizer'):
+                            tokenizer = inner_clip.tokenizer
+                            print(f"DEBUG: Using inner clip.tokenizer: {type(tokenizer)}")
             else:
                 print("DEBUG: clip is None!")
             
