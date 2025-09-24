@@ -241,6 +241,16 @@ class ConceptAttention:
                     concept_map = concept_map * (1 + 0.1 * torch.sin(2 * torch.pi * (i + 1) * x_coords))
                     concept_map = concept_map * (1 + 0.1 * torch.cos(2 * torch.pi * (i + 1) * y_coords))
                     
+                    # Ensure proper 2D shape for PIL compatibility
+                    if len(concept_map.shape) > 2:
+                        concept_map = concept_map.squeeze()
+                    
+                    # Ensure it's 2D
+                    if len(concept_map.shape) == 1:
+                        concept_map = concept_map.unsqueeze(0).expand(target_h, -1)
+                    elif len(concept_map.shape) == 0:
+                        concept_map = torch.ones(target_h, target_w, device=self.device)
+                    
                     concept_maps[concept] = concept_map
                     logger.info(f"Created concept map for '{concept}': {concept_map.shape}")
                 else:
