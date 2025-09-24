@@ -183,8 +183,19 @@ class ConceptAttention:
                 if hasattr(subnet, "children") or subnet.__class__.__name__ == "Attention":
                     count = modify_forward(subnet, count)
             return count
-
-        # Apply forward method replacement
+        
+        # Try to find transformer_blocks or similar structures
+        if hasattr(model, 'transformer_blocks'):
+            logger.info("Found transformer_blocks, applying attention control")
+            attention_count = modify_forward(model.transformer_blocks, 0)
+            logger.info(f"🔍 Replaced forward methods for {attention_count} attention modules in transformer_blocks")
+        
+        if hasattr(model, 'single_transformer_blocks'):
+            logger.info("Found single_transformer_blocks, applying attention control")
+            attention_count = modify_forward(model.single_transformer_blocks, 0)
+            logger.info(f"🔍 Replaced forward methods for {attention_count} attention modules in single_transformer_blocks")
+        
+        # Also try the general approach
         attention_count = modify_forward(model, 0)
         logger.info(f"🔍 Replaced forward methods for {attention_count} attention modules")
     
@@ -382,8 +393,8 @@ class ConceptAttention:
                 
                 # Reshape attention output for similarity computation
                 if attention_output.dim() == 3:
-                    # [batch, seq_len, dim] -> [batch, seq_len]
-                    attention_flat = attention_output.view(attention_output.shape[0], -1, attention_output.shape[-1])
+                    # [batch, seq_len, dim] -> [batch, seq_len, dim]
+                    attention_flat = attention_output
                 else:
                     attention_flat = attention_output
                 
