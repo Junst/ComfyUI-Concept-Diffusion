@@ -9,44 +9,75 @@ import logging
 from typing import Dict, List, Tuple, Any
 from .concept_attention import ConceptAttentionProcessor
 
-def to_preview_image(arr_1d_or_2d, target_hw=None):
+def _ensure_image_hw3(arr, target_hw=None):
     """
-    arr_1d_or_2d: (N,) 또는 (h,w) float/np.uint8 등
-    target_hw: (H, W)로 리사이즈하고 싶으면 지정
-    return: (H, W, 3) float32, 0..1
+    arr: (H,W,3) 또는 (H,W) 또는 (N,3) 또는 (N,) 등 각종 입력을 받아
+         최종 (H,W,3) float32 [0..1] 로 변환.
     """
-    arr = np.asarray(arr_1d_or_2d)
+    a = np.asarray(arr)
 
-    # 1) 1D 벡터면 정사각형으로 리쉐이프 (4096→64x64, 1024→32x32 등)
-    if arr.ndim == 1:
-        n = arr.shape[0]
-        side = int(np.sqrt(n))
-        if side * side != n:  # 완전 제곱수가 아니면 2D로 바꿀 수 없음
-            # 가장 가까운 제곱수로 패딩
-            next_side = int(np.ceil(np.sqrt(n)))
-            pad = next_side * next_side - n
-            arr = np.pad(arr, (0, pad))
+    # 1) torch.Tensor -> numpy
+    try:
+        import torch
+        if isinstance(arr, torch.Tensor):
+            a = arr.detach().float().cpu().numpy()
+    except Exception:
+        pass
+
+    # 2) (N,3) 또는 (N,)이면 정사각형으로 복원
+    if a.ndim == 2 and a.shape[1] in (1, 3):  # (N,1) or (N,3)
+        N = a.shape[0]
+        side = int(np.sqrt(N))
+        if side * side != N:
+            # 제곱수로 패딩
+            next_side = int(np.ceil(np.sqrt(N)))
+            pad = next_side * next_side - N
+            pad_axis = ((0, pad), (0, 0))
+            a = np.pad(a, pad_axis, mode="constant")
             side = next_side
-        arr = arr.reshape(side, side)
+        a = a.reshape(side, side, a.shape[1])
 
-    # 2) 2D가 됐으니 0..1로 정규화
-    arr = arr.astype(np.float32)
-    mn, mx = float(arr.min()), float(arr.max())
+    elif a.ndim == 1:  # (N,)
+        N = a.shape[0]
+        side = int(np.sqrt(N))
+        if side * side != N:
+            next_side = int(np.ceil(np.sqrt(N)))
+            pad = next_side * next_side - N
+            a = np.pad(a, (0, pad), mode="constant")
+            side = next_side
+        a = a.reshape(side, side)
+
+    # 3) (H,W) → (H,W,3) 그레이스케일 확장
+    if a.ndim == 2:
+        a = np.stack([a, a, a], axis=-1)
+
+    # 4) (H,W,1) → (H,W,3)
+    if a.ndim == 3 and a.shape[2] == 1:
+        a = np.repeat(a, 3, axis=2)
+
+    # 5) 타입/스케일 정규화
+    a = a.astype(np.float32)
+    mn, mx = float(a.min()), float(a.max())
     if mx > mn:
-        arr = (arr - mn) / (mx - mn)
+        a = (a - mn) / (mx - mn)
     else:
-        arr = np.zeros_like(arr, dtype=np.float32)
+        a[:] = 0.0
 
-    # 3) 필요하면 원본 이미지 크기(H,W)로 업샘플
+    # 6) 필요 시 리사이즈
     if target_hw is not None:
         H, W = target_hw
-        arr_u8 = (arr * 255.0).astype(np.uint8)
-        arr_u8 = np.array(Image.fromarray(arr_u8).resize((W, H), Image.BILINEAR))
-        arr = arr_u8.astype(np.float32) / 255.0
+        a_u8 = (a * 255.0).astype(np.uint8)
+        a_u8 = np.array(Image.fromarray(a_u8).resize((W, H), Image.BILINEAR))
+        if a_u8.ndim == 2:
+            a_u8 = np.stack([a_u8]*3, axis=-1)
+        a = a_u8.astype(np.float32) / 255.0
 
-    # 4) 3채널로 스택 (그레이스케일을 RGB로)
-    arr_rgb = np.stack([arr, arr, arr], axis=-1).astype(np.float32)  # (H,W,3), 0..1
-    return arr_rgb
+    # 최종 보장: (H,W,3) float32 0..1
+    return a
+
+def to_preview_image(arr_1d_or_2d, target_hw=None):
+    """Legacy function - use _ensure_image_hw3 instead"""
+    return _ensure_image_hw3(arr_1d_or_2d, target_hw)
 
 logger = logging.getLogger(__name__)
 
@@ -98,14 +129,13 @@ class ConceptAttentionNode:
             # Process image to get concept maps
             concept_maps = self.processor.process_image(image, concept_list, clip)
             
-            # Convert to ComfyUI format
-            saliency_maps = self._convert_to_comfyui_format(concept_maps)
-            
-            # Create visualization
-            visualized_image = self._create_simple_visualization(saliency_maps, image)
+            # Convert to ComfyUI format with guaranteed (H,W,3) output
+            image_shape = image.shape if hasattr(image, 'shape') else None
+            saliency_maps, visualized_image = self._convert_to_comfyui_format(concept_maps, image_shape)
             
             logger.info(f"DEBUG: processor.process_image returned: {type(concept_maps)}")
             logger.info(f"DEBUG: saliency_maps keys: {list(saliency_maps.keys()) if saliency_maps else None}")
+            logger.info(f"DEBUG: visualized_image shape: {visualized_image.shape}")
             
             return saliency_maps, visualized_image
             
@@ -114,45 +144,49 @@ class ConceptAttentionNode:
             # Return empty results on error
             return {}, image
     
-    def _convert_to_comfyui_format(self, concept_maps: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def _convert_to_comfyui_format(self, concept_maps: Dict[str, torch.Tensor], image_shape=None) -> Tuple[Dict[str, np.ndarray], np.ndarray]:
         """
-        Convert concept maps to ComfyUI format using to_preview_image.
+        Convert concept maps to ComfyUI format with guaranteed (H,W,3) output.
+        Returns: (fixed_maps, visualized_image)
         """
         try:
             if not concept_maps:
                 logger.warning("WARNING: saliency_maps is empty, returning empty ConceptMaps")
-                return {}
+                # Create fallback image
+                fallback_img = _ensure_image_hw3(np.zeros((1024, 1024)), target_hw=(1024, 1024))
+                return {}, fallback_img
             
-            # Use to_preview_image for robust conversion
-            saliency_maps = {}
+            # Get target dimensions from image shape
+            if image_shape is not None and len(image_shape) >= 2:
+                target_h, target_w = image_shape[:2]
+            else:
+                target_h, target_w = 1024, 1024
+            
+            # Convert all concept maps to guaranteed (H,W,3) format
+            fixed_maps = {}
             for concept, attention_map in concept_maps.items():
                 try:
-                    # Ensure tensor is on CPU and convert to numpy
-                    if isinstance(attention_map, torch.Tensor):
-                        attention_map = attention_map.cpu().numpy()
-                    
-                    # Use to_preview_image to handle all conversion cases
-                    # This function handles 1D, 2D, 3D+ arrays and converts to proper format
-                    preview_img = to_preview_image(attention_map, target_hw=(1024, 1024))
-                    
-                    # Convert back to 2D for saliency map (take first channel)
-                    saliency_map = preview_img[:, :, 0]  # (H, W)
-                    
-                    saliency_maps[concept] = saliency_map
-                    
+                    fixed_maps[concept] = _ensure_image_hw3(attention_map, target_hw=(target_h, target_w))
                 except Exception as e:
                     logger.error(f"Error processing concept '{concept}': {e}")
-                    # Create fallback using to_preview_image
-                    fallback = np.ones((32, 32)) * 0.5
-                    preview_img = to_preview_image(fallback, target_hw=(1024, 1024))
-                    saliency_maps[concept] = preview_img[:, :, 0]
+                    # Create fallback
+                    fixed_maps[concept] = _ensure_image_hw3(np.zeros((32, 32)), target_hw=(target_h, target_w))
             
-            logger.info(f"DEBUG: Converted concept_maps with keys: {list(saliency_maps.keys())}")
-            return saliency_maps
+            # Create visualized image from first concept map
+            if fixed_maps:
+                visualized_image = next(iter(fixed_maps.values()))  # (H,W,3) float32
+            else:
+                visualized_image = _ensure_image_hw3(np.zeros((target_h, target_w)), target_hw=(target_h, target_w))
+            
+            logger.info(f"DEBUG: Converted concept_maps with keys: {list(fixed_maps.keys())}")
+            logger.info(f"DEBUG: visualized_image shape: {visualized_image.shape}")
+            
+            return fixed_maps, visualized_image
             
         except Exception as e:
-            logger.error(f"Error converting to ComfyUI format: {e}")
-            return {}
+            logger.error(f"Error converting concept maps: {e}")
+            fallback_img = _ensure_image_hw3(np.zeros((1024, 1024)), target_hw=(1024, 1024))
+            return {}, fallback_img
     
     def _create_simple_visualization(self, saliency_maps: Dict[str, torch.Tensor], 
                                    image: torch.Tensor) -> torch.Tensor:
@@ -199,8 +233,8 @@ class ConceptAttentionNode:
                     if isinstance(attention_map, torch.Tensor):
                         attention_map = attention_map.cpu().numpy()
                     
-                    # Use to_preview_image for robust conversion
-                    preview_img = to_preview_image(attention_map, target_hw=(img_np.shape[0], img_np.shape[1]))
+                    # Use _ensure_image_hw3 for robust conversion
+                    preview_img = _ensure_image_hw3(attention_map, target_hw=(img_np.shape[0], img_np.shape[1]))
                     
                     # Use the first channel as attention map
                     attention_resized = preview_img[:, :, 0]
