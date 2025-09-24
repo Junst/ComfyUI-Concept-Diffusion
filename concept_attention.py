@@ -72,13 +72,17 @@ class ConceptAttention:
             x = torch.randn(batch_size, latent_height * latent_width, 4, device=self.device)
             timestep_tensor = torch.tensor([timestep], device=self.device)
             
-            # Create context from concept embeddings - ensure compatible dimensions
+            # Create context from concept embeddings - ensure compatible dimensions and device
+            # Move concept_embeddings to the same device as x
+            concept_embeddings = concept_embeddings.to(self.device)
+            
             if len(concept_embeddings.shape) == 3:  # [batch, seq, dim]
                 # Reshape to match x dimensions: [batch, seq, 4]
                 batch, seq, dim = concept_embeddings.shape
                 if dim != 4:
                     # Project to 4 dimensions to match x
-                    context = F.linear(concept_embeddings, torch.randn(4, dim, device=self.device))
+                    projection_weight = torch.randn(4, dim, device=self.device)
+                    context = F.linear(concept_embeddings, projection_weight)
                 else:
                     context = concept_embeddings
             elif len(concept_embeddings.shape) == 4:  # [batch, seq, dim1, dim2]
@@ -86,7 +90,8 @@ class ConceptAttention:
                 batch, seq, dim1, dim2 = concept_embeddings.shape
                 flattened = concept_embeddings.view(batch, seq, dim1 * dim2)
                 if dim1 * dim2 != 4:
-                    context = F.linear(flattened, torch.randn(4, dim1 * dim2, device=self.device))
+                    projection_weight = torch.randn(4, dim1 * dim2, device=self.device)
+                    context = F.linear(flattened, projection_weight)
                 else:
                     context = flattened
             elif len(concept_embeddings.shape) == 5:  # [batch, batch, seq, dim1, dim2]
@@ -96,7 +101,8 @@ class ConceptAttention:
                     seq, dim1, dim2 = context.shape
                     flattened = context.view(1, seq, dim1 * dim2)
                     if dim1 * dim2 != 4:
-                        context = F.linear(flattened, torch.randn(4, dim1 * dim2, device=self.device))
+                        projection_weight = torch.randn(4, dim1 * dim2, device=self.device)
+                        context = F.linear(flattened, projection_weight)
                     else:
                         context = flattened
             else:
@@ -104,11 +110,13 @@ class ConceptAttention:
                 if len(concept_embeddings.shape) == 2:  # [seq, dim]
                     context = concept_embeddings.unsqueeze(0)  # [1, seq, dim]
                     if context.shape[-1] != 4:
-                        context = F.linear(context, torch.randn(4, context.shape[-1], device=self.device))
+                        projection_weight = torch.randn(4, context.shape[-1], device=self.device)
+                        context = F.linear(context, projection_weight)
                 else:
                     context = concept_embeddings.unsqueeze(0)  # Add batch dimension if needed
                     if context.shape[-1] != 4:
-                        context = F.linear(context, torch.randn(4, context.shape[-1], device=self.device))
+                        projection_weight = torch.randn(4, context.shape[-1], device=self.device)
+                        context = F.linear(context, projection_weight)
             
             # Create guidance vector
             y = torch.zeros(batch_size, 512, device=self.device)
