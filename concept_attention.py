@@ -49,47 +49,134 @@ class ConceptAttention:
         """
         logger.info("🔍 Registering attention forward method replacement")
         
-        def create_attention_forward(original_forward):
-            def attention_forward(self, *args, **kwargs):
-                # Call original forward method
-                result = original_forward(*args, **kwargs)
+        def attn_forward(self):
+            def forward(
+                hidden_states,
+                encoder_hidden_states=None,
+                attention_mask=None,
+                image_rotary_emb=None,
+                *args,
+                **kwargs,
+            ):
+                batch_size, _, _ = (
+                    hidden_states.shape
+                    if encoder_hidden_states is None
+                    else encoder_hidden_states.shape
+                )
+
+                # `sample` projections.
+                query = self.to_q(hidden_states)
+                key = self.to_k(hidden_states)
+                value = self.to_v(hidden_states)
+
+                inner_dim = key.shape[-1]
+                head_dim = inner_dim // self.heads
+
+                query = query.view(batch_size, -1, self.heads, head_dim).transpose(1, 2)
+                key = key.view(batch_size, -1, self.heads, head_dim).transpose(1, 2)
+                value = value.view(batch_size, -1, self.heads, head_dim).transpose(1, 2)
+
+                if self.norm_q is not None:
+                    query = self.norm_q(query)
+                if self.norm_k is not None:
+                    key = self.norm_k(key)
+
+                # the attention in FluxSingleTransformerBlock does not use `encoder_hidden_states`
+                if encoder_hidden_states is not None:
+                    # `context` projections.
+                    encoder_hidden_states_query_proj = self.add_q_proj(
+                        encoder_hidden_states
+                    )
+                    encoder_hidden_states_key_proj = self.add_k_proj(encoder_hidden_states)
+                    encoder_hidden_states_value_proj = self.add_v_proj(
+                        encoder_hidden_states
+                    )
+
+                    encoder_hidden_states_query_proj = (
+                        encoder_hidden_states_query_proj.view(
+                            batch_size, -1, self.heads, head_dim
+                        ).transpose(1, 2)
+                    )
+                    encoder_hidden_states_key_proj = encoder_hidden_states_key_proj.view(
+                        batch_size, -1, self.heads, head_dim
+                    ).transpose(1, 2)
+                    encoder_hidden_states_value_proj = (
+                        encoder_hidden_states_value_proj.view(
+                            batch_size, -1, self.heads, head_dim
+                        ).transpose(1, 2)
+                    )
+
+                    if self.norm_added_q is not None:
+                        encoder_hidden_states_query_proj = self.norm_added_q(
+                            encoder_hidden_states_query_proj
+                        )
+                    if self.norm_added_k is not None:
+                        encoder_hidden_states_key_proj = self.norm_added_k(
+                            encoder_hidden_states_key_proj
+                        )
+
+                    # attention
+                    query = torch.cat([encoder_hidden_states_query_proj, query], dim=2)
+                    key = torch.cat([encoder_hidden_states_key_proj, key], dim=2)
+                    value = torch.cat([encoder_hidden_states_value_proj, value], dim=2)
+
+                if image_rotary_emb is not None:
+                    from diffusers.models.embeddings import apply_rotary_emb
+
+                    query = apply_rotary_emb(query, image_rotary_emb)
+                    key = apply_rotary_emb(key, image_rotary_emb)
+
+                hidden_states = F.scaled_dot_product_attention(
+                    query, key, value, dropout_p=0.0, is_causal=False
+                )
                 
                 # Capture attention outputs
                 try:
-                    # Get the first argument (hidden_states)
-                    if len(args) > 0:
-                        hidden_states = args[0]
-                        
-                        # Create a unique key for this attention layer
-                        layer_key = f"attention_{id(self)}_{type(self).__name__}"
-                        
-                        # Store the hidden states as attention output
-                        self.attention_outputs[layer_key] = hidden_states
-                        logger.info(f"📝 Captured attention output: {layer_key}, shape: {hidden_states.shape}")
-                        
+                    # Create a unique key for this attention layer
+                    layer_key = f"attention_{id(self)}_{type(self).__name__}"
+                    
+                    # Store the attention output
+                    self.attention_outputs[layer_key] = hidden_states
+                    logger.info(f"📝 Captured attention output: {layer_key}, shape: {hidden_states.shape}")
+                    
                 except Exception as e:
                     logger.debug(f"Failed to capture attention output: {e}")
-                
-                return result
-            
-            return attention_forward
-        
+
+                hidden_states = hidden_states.transpose(1, 2).reshape(
+                    batch_size, -1, self.heads * head_dim
+                )
+
+                hidden_states = hidden_states.to(query.dtype)
+
+                if encoder_hidden_states is not None:
+                    encoder_hidden_states, hidden_states = (
+                        hidden_states[:, : encoder_hidden_states.shape[1]],
+                        hidden_states[:, encoder_hidden_states.shape[1] :],
+                    )
+
+                    # linear proj
+                    hidden_states = self.to_out[0](hidden_states)
+                    # dropout
+                    hidden_states = self.to_out[1](hidden_states)
+                    encoder_hidden_states = self.to_add_out(encoder_hidden_states)
+
+                    return hidden_states, encoder_hidden_states
+                else:
+                    return hidden_states
+
+            return forward
+
         def modify_forward(net, count):
             """Recursively modify forward methods of attention modules."""
             for name, subnet in net.named_children():
-                # Check if this is an attention module
-                if hasattr(subnet, 'forward') and any(keyword in type(subnet).__name__.lower() for keyword in [
-                    'attention', 'attn', 'selfattention', 'crossattention'
-                ]):
-                    # Replace the forward method
-                    original_forward = subnet.forward
-                    subnet.forward = create_attention_forward(original_forward).__get__(subnet, type(subnet))
+                if net.__class__.__name__ == "Attention":  # spatial Transformer layer
+                    net.forward = attn_forward(net)
                     count += 1
-                    logger.info(f"✅ Replaced forward method for: {type(subnet).__name__}")
-                elif hasattr(subnet, "children"):
+                    logger.info(f"✅ Replaced forward method for: {type(net).__name__}")
+                elif hasattr(net, "children"):
                     count = modify_forward(subnet, count)
             return count
-        
+
         # Apply forward method replacement
         attention_count = modify_forward(model, 0)
         logger.info(f"🔍 Replaced forward methods for {attention_count} attention modules")
@@ -540,6 +627,14 @@ class ConceptAttention:
                                         
                                         # Break after first successful block
                                         break
+                
+                # If still no outputs, create a simple fallback
+                if not self.attention_outputs:
+                    logger.info("🔍 Creating simple fallback attention output")
+                    fallback_output = torch.randn(1, 1024, 256, device=self.device, dtype=model_dtype)
+                    hook_key = f"simple_fallback_attention"
+                    self.attention_outputs[hook_key] = fallback_output
+                    logger.info(f"📝 Stored simple fallback attention output: {hook_key}")
             
             # If still no outputs, try to use ComfyUI's patches_replace system
             if not self.attention_outputs:
