@@ -143,10 +143,28 @@ class ConceptAttentionNode:
             for i, (concept, attention_map) in enumerate(saliency_maps.items()):
                 if i < len(colors):
                     color = colors[i]
+                    
+                    # Ensure attention_map is numpy array
+                    if isinstance(attention_map, torch.Tensor):
+                        attention_map = attention_map.cpu().numpy()
+                    
+                    # Ensure attention_map is 2D
+                    if len(attention_map.shape) > 2:
+                        attention_map = attention_map.squeeze()
+                    elif len(attention_map.shape) == 1:
+                        attention_map = attention_map.reshape(-1, 1)
+                    
+                    # Normalize to 0-255 range for PIL
+                    attention_map = (attention_map - attention_map.min()) / (attention_map.max() - attention_map.min() + 1e-8)
+                    attention_map = (attention_map * 255).astype(np.uint8)
+                    
                     # Resize attention map to image size
                     attention_resized = np.array(Image.fromarray(attention_map).resize(
                         (img_np.shape[1], img_np.shape[0]), Image.BILINEAR
                     ))
+                    
+                    # Normalize back to 0-1 range
+                    attention_resized = attention_resized.astype(np.float32) / 255.0
                     
                     # Create colored overlay
                     for c in range(3):
