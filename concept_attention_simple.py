@@ -14,7 +14,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class ConceptAttention:
+class SimpleConceptAttention:
     """
     Simplified concept attention processor based on original ConceptAttention structure.
     Uses direct attention capture without complex hook systems.
@@ -150,13 +150,13 @@ class ConceptAttention:
             raise RuntimeError(f"Failed to create concept maps: {e}")
 
 
-class ConceptAttentionProcessor:
+class SimpleConceptAttentionProcessor:
     """
     Simplified processor for ComfyUI integration.
     """
     
     def __init__(self, model, device="cuda"):
-        self.concept_attention = ConceptAttention(model, device)
+        self.concept_attention = SimpleConceptAttention(model, device)
         self.device = device
         
     def process_image(self, image: torch.Tensor, concepts: List[str], 
