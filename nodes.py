@@ -95,6 +95,12 @@ class ConceptAttentionNode:
                 if not isinstance(attention_map, np.ndarray):
                     attention_map = np.array(attention_map)
                 
+                # Get target dimensions from the first concept map
+                if len(attention_map.shape) >= 2:
+                    target_h, target_w = attention_map.shape[-2], attention_map.shape[-1]
+                else:
+                    target_h, target_w = 1024, 1024  # Default fallback
+                
                 # Ensure 2D shape - force 2D conversion
                 if len(attention_map.shape) > 2:
                     attention_map = attention_map.squeeze()
