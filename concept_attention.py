@@ -210,7 +210,6 @@ class ConceptAttention:
                 attention_spatial = attention_output
             
             # Create concept maps for each concept
-            # Use attention output directly instead of spatial reshaping
             attention_output = list(self.attention_outputs.values())[0]  # Get first output
             
             # Create concept maps by averaging attention across all dimensions
