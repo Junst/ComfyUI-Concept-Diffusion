@@ -241,6 +241,15 @@ class ConceptAttention:
                     if len(concept_map.shape) != 2:
                         concept_map = torch.ones(target_h, target_w, device=self.device) * concept_attention.mean()
                     
+                    # Final check: ensure it's exactly 2D
+                    if len(concept_map.shape) != 2:
+                        logger.warning(f"Concept map for '{concept}' is not 2D: {concept_map.shape}, forcing 2D")
+                        concept_map = torch.ones(target_h, target_w, device=self.device) * 0.5
+                    
+                    # Ensure the concept map is exactly 2D and has the right shape
+                    if concept_map.shape != (target_h, target_w):
+                        concept_map = torch.ones(target_h, target_w, device=self.device) * concept_attention.mean()
+                    
                     concept_maps[concept] = concept_map
                     logger.info(f"Created concept map for '{concept}': {concept_map.shape}")
                 else:
