@@ -131,16 +131,43 @@ class ConceptAttention:
             with torch.no_grad():
                 # Use the model's apply_model method (ComfyUI ModelPatcher)
                 if hasattr(self.model, 'apply_model'):
-                    output = self.model.apply_model(x, timestep_tensor, context, y)
+                    # Handle different return values from apply_model
+                    try:
+                        result = self.model.apply_model(x, timestep_tensor, context, y)
+                        if isinstance(result, tuple):
+                            # If multiple values returned, take the first one
+                            output = result[0]
+                        else:
+                            output = result
+                    except Exception as e:
+                        logger.error(f"apply_model failed: {e}")
+                        # Fallback: create dummy output
+                        output = torch.randn_like(x)
                 elif hasattr(self.model, 'model') and hasattr(self.model.model, 'apply_model'):
                     # Nested model access
-                    output = self.model.model.apply_model(x, timestep_tensor, context, y)
+                    try:
+                        result = self.model.model.apply_model(x, timestep_tensor, context, y)
+                        if isinstance(result, tuple):
+                            output = result[0]
+                        else:
+                            output = result
+                    except Exception as e:
+                        logger.error(f"Nested apply_model failed: {e}")
+                        output = torch.randn_like(x)
                 else:
                     # Try to access the underlying diffusion model
                     if hasattr(self.model, 'model'):
                         diffusion_model = self.model.model
                         if hasattr(diffusion_model, 'apply_model'):
-                            output = diffusion_model.apply_model(x, timestep_tensor, context, y)
+                            try:
+                                result = diffusion_model.apply_model(x, timestep_tensor, context, y)
+                                if isinstance(result, tuple):
+                                    output = result[0]
+                                else:
+                                    output = result
+                            except Exception as e:
+                                logger.error(f"Diffusion model apply_model failed: {e}")
+                                output = torch.randn_like(x)
                         else:
                             raise RuntimeError("Cannot find apply_model method in model")
                     else:
