@@ -17,6 +17,23 @@ class ConceptAttentionNode:
     Based on original ConceptAttention structure.
     """
     
+    RETURN_TYPES = ("CONCEPT_MAPS", "IMAGE")
+    RETURN_NAMES = ("concept_maps", "visualized_image")
+    FUNCTION = "generate_concept_attention"
+    CATEGORY = "Concept Attention"
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model": ("MODEL",),
+                "clip": ("CLIP",),
+                "image": ("IMAGE",),
+                "prompt": ("STRING", {"multiline": True, "default": "A beautiful landscape"}),
+                "concept_list": ("STRING", {"multiline": True, "default": "woman, cat, white, lines, cane"}),
+            }
+        }
+    
     def __init__(self):
         self.processor = None
         
@@ -188,6 +205,21 @@ class ConceptSaliencyMapNode:
     Node for extracting saliency maps from concept attention.
     """
     
+    RETURN_TYPES = ("MASK", "IMAGE")
+    RETURN_NAMES = ("mask", "saliency_image")
+    FUNCTION = "extract_saliency_map"
+    CATEGORY = "Concept Attention"
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "concept_maps": ("CONCEPT_MAPS",),
+                "concept_name": ("STRING", {"default": "woman"}),
+                "threshold": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01}),
+            }
+        }
+    
     def __init__(self):
         pass
     
@@ -243,6 +275,21 @@ class ConceptSegmentationNode:
     """
     Node for performing segmentation based on concept attention.
     """
+    
+    RETURN_TYPES = ("MASK", "IMAGE")
+    RETURN_NAMES = ("segmentation_mask", "segmented_image")
+    FUNCTION = "perform_segmentation"
+    CATEGORY = "Concept Attention"
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "concept_maps": ("CONCEPT_MAPS",),
+                "image": ("IMAGE",),
+                "concepts": ("STRING", {"multiline": True, "default": "woman, cat, white, lines, cane"}),
+            }
+        }
     
     def __init__(self):
         pass
@@ -312,6 +359,20 @@ class ConceptAttentionVisualizerNode:
     """
     Node for visualizing concept attention maps.
     """
+    
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("visualized_image",)
+    FUNCTION = "visualize_attention"
+    CATEGORY = "Concept Attention"
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "concept_maps": ("CONCEPT_MAPS",),
+                "image": ("IMAGE",),
+            }
+        }
     
     def __init__(self):
         pass
