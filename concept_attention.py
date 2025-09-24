@@ -195,24 +195,7 @@ class ConceptAttention:
             concept_maps = {}
             attention_output = list(self.attention_outputs.values())[0]  # Get first output
             
-            # Reshape attention output to spatial dimensions
-            if len(attention_output.shape) == 3:  # [batch, seq, dim]
-                batch_size, seq_len, dim = attention_output.shape
-                # Reshape to spatial format
-                spatial_size = int(np.sqrt(seq_len))
-                if spatial_size * spatial_size == seq_len:
-                    attention_spatial = attention_output.view(batch_size, spatial_size, spatial_size, dim)
-                else:
-                    # Fallback to square root
-                    spatial_size = int(np.sqrt(seq_len))
-                    attention_spatial = attention_output[:, :spatial_size*spatial_size].view(batch_size, spatial_size, spatial_size, dim)
-            else:
-                attention_spatial = attention_output
-            
             # Create concept maps for each concept
-            attention_output = list(self.attention_outputs.values())[0]  # Get first output
-            
-            # Create concept maps by averaging attention across all dimensions
             for i, concept in enumerate(concepts):
                 # Create a simple concept map by averaging attention across the sequence
                 if len(attention_output.shape) == 3:  # [batch, seq, dim]
