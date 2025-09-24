@@ -64,27 +64,32 @@ class ConceptAttentionNode:
             # Initialize ConceptAttention processor
             processor = ConceptAttentionProcessor(model, device)
             
-            # Extract text encoder and tokenizer from clip
+            # Extract text encoder and tokenizer from ComfyUI CLIP
             text_encoder = None
             tokenizer = None
             
-            print(f"DEBUG: clip type: {type(clip)}")
             if clip is not None:
-                print(f"DEBUG: clip attributes: {dir(clip)}")
-                
+                # ComfyUI CLIP structure: clip.cond_stage_model is the text encoder
                 if hasattr(clip, 'cond_stage_model'):
                     text_encoder = clip.cond_stage_model
                     print(f"DEBUG: Using cond_stage_model as text_encoder: {type(text_encoder)}")
-                elif hasattr(clip, 'text_encoder'):
-                    text_encoder = clip.text_encoder
-                    print(f"DEBUG: Using text_encoder: {type(text_encoder)}")
+                    
+                    # Try to get tokenizer from cond_stage_model
+                    if hasattr(text_encoder, 'tokenizer'):
+                        tokenizer = text_encoder.tokenizer
+                        print(f"DEBUG: Using cond_stage_model.tokenizer: {type(tokenizer)}")
+                    elif hasattr(text_encoder, 'tokenizer_model'):
+                        tokenizer = text_encoder.tokenizer_model
+                        print(f"DEBUG: Using cond_stage_model.tokenizer_model: {type(tokenizer)}")
                 
-                if hasattr(clip, 'tokenizer'):
+                # Fallback: try direct clip attributes
+                if text_encoder is None and hasattr(clip, 'text_encoder'):
+                    text_encoder = clip.text_encoder
+                    print(f"DEBUG: Using clip.text_encoder: {type(text_encoder)}")
+                
+                if tokenizer is None and hasattr(clip, 'tokenizer'):
                     tokenizer = clip.tokenizer
                     print(f"DEBUG: Using clip.tokenizer: {type(tokenizer)}")
-                elif hasattr(clip, 'cond_stage_model') and hasattr(clip.cond_stage_model, 'tokenizer'):
-                    tokenizer = clip.cond_stage_model.tokenizer
-                    print(f"DEBUG: Using cond_stage_model.tokenizer: {type(tokenizer)}")
                 
                 print(f"DEBUG: Final text_encoder: {text_encoder}")
                 print(f"DEBUG: Final tokenizer: {tokenizer}")

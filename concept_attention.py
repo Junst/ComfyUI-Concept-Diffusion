@@ -18,14 +18,14 @@ class ConceptAttention:
     
     def register_attention_hooks(self, model):
         """
-        Register attention capture by directly replacing forward methods (inspired by ComfyUI-Attention-Distillation).
+        Register attention capture for ComfyUI Flux models.
         """
-        logger.info("🔍 Using direct forward method replacement for attention capture")
+        logger.info("🔍 Using ComfyUI Flux model attention capture")
         
         # Store model reference
         self.model = model
         
-        # Try to find the actual model
+        # Try to find the actual Flux model
         actual_model = None
         if hasattr(model, 'model'):
             actual_model = model.model
@@ -36,12 +36,129 @@ class ConceptAttention:
         else:
             actual_model = model
         
-        logger.info(f"🔍 Using model for attention capture: {type(actual_model)}")
+        logger.info(f"🔍 Using Flux model for attention capture: {type(actual_model)}")
         
-        # Register attention capture by replacing forward methods
-        self._register_attention_forward_replacement(actual_model)
+        # For ComfyUI Flux models, register hooks on transformer blocks
+        if hasattr(actual_model, 'transformer_blocks'):
+            logger.info("🔍 Found transformer_blocks in Flux model")
+            self._register_flux_attention_hooks(actual_model)
+        elif hasattr(actual_model, 'double_blocks'):
+            logger.info("🔍 Found double_blocks in Flux model")
+            self._register_flux_attention_hooks(actual_model)
+        else:
+            logger.warning("🔍 No transformer_blocks or double_blocks found in Flux model")
+            # Try to register on the model itself
+            self._register_flux_attention_hooks(actual_model)
         
         return self.attention_outputs
+    
+    def _register_flux_attention_hooks(self, model):
+        """
+        Register attention hooks specifically for ComfyUI Flux models.
+        """
+        logger.info("🔍 Registering Flux attention hooks")
+        
+        # Get model dtype
+        if hasattr(model, 'parameters'):
+            params = list(model.parameters())
+            model_dtype = params[0].dtype if params else torch.float32
+        else:
+            model_dtype = torch.float32
+        
+        # Try to find and hook transformer blocks
+        transformer_blocks = None
+        if hasattr(model, 'transformer_blocks'):
+            transformer_blocks = model.transformer_blocks
+        elif hasattr(model, 'double_blocks'):
+            transformer_blocks = model.double_blocks
+        
+        if transformer_blocks is not None:
+            logger.info(f"🔍 Found {len(transformer_blocks)} transformer blocks")
+            
+            # Hook into specific blocks (15-18 as in original ConceptAttention)
+            for block_idx in [15, 16, 17, 18]:
+                if block_idx < len(transformer_blocks):
+                    block = transformer_blocks[block_idx]
+                    logger.info(f"🔍 Hooking block {block_idx}: {type(block)}")
+                    
+                    # Hook into attention modules within the block
+                    self._hook_flux_block_attention(block, block_idx, model_dtype)
+        else:
+            logger.warning("🔍 No transformer blocks found, trying direct model hooks")
+            # Try to hook directly into the model
+            self._hook_flux_model_attention(model, model_dtype)
+    
+    def _hook_flux_block_attention(self, block, block_idx, model_dtype):
+        """
+        Hook into attention modules within a Flux transformer block.
+        """
+        # Look for attention modules in the block
+        attention_modules = []
+        
+        # Check for img_attn and txt_attn (DoubleStreamBlock)
+        if hasattr(block, 'img_attn'):
+            attention_modules.append(('img_attn', block.img_attn))
+        if hasattr(block, 'txt_attn'):
+            attention_modules.append(('txt_attn', block.txt_attn))
+        
+        # Check for single attention module
+        if hasattr(block, 'attn'):
+            attention_modules.append(('attn', block.attn))
+        
+        # Hook into each attention module
+        for attn_name, attn_module in attention_modules:
+            logger.info(f"🔍 Hooking {attn_name} in block {block_idx}: {type(attn_module)}")
+            
+            # Create hook function
+            def create_attention_hook(module_name, block_id):
+                def hook_fn(module, input, output):
+                    try:
+                        # Convert output to float32 for processing
+                        attention_output = output.to(torch.float32)
+                        
+                        # Store the attention output
+                        hook_key = f"flux_{module_name}_block_{block_id}_{id(module)}"
+                        self.attention_outputs[hook_key] = attention_output
+                        logger.info(f"📝 Captured {module_name} attention from block {block_id}: {attention_output.shape}")
+                    except Exception as e:
+                        logger.debug(f"Failed to capture {module_name} attention: {e}")
+                
+                return hook_fn
+            
+            # Register the hook
+            hook_fn = create_attention_hook(attn_name, block_idx)
+            attn_module.register_forward_hook(hook_fn)
+    
+    def _hook_flux_model_attention(self, model, model_dtype):
+        """
+        Hook into attention modules directly in the Flux model.
+        """
+        logger.info("🔍 Hooking Flux model attention directly")
+        
+        # Look for attention modules in the model
+        for name, module in model.named_modules():
+            if 'attention' in name.lower() or 'attn' in name.lower():
+                logger.info(f"🔍 Found attention module: {name} - {type(module)}")
+                
+                # Create hook function
+                def create_model_attention_hook(module_name):
+                    def hook_fn(module, input, output):
+                        try:
+                            # Convert output to float32 for processing
+                            attention_output = output.to(torch.float32)
+                            
+                            # Store the attention output
+                            hook_key = f"flux_model_{module_name}_{id(module)}"
+                            self.attention_outputs[hook_key] = attention_output
+                            logger.info(f"📝 Captured model attention {module_name}: {attention_output.shape}")
+                        except Exception as e:
+                            logger.debug(f"Failed to capture model attention {module_name}: {e}")
+                    
+                    return hook_fn
+                
+                # Register the hook
+                hook_fn = create_model_attention_hook(name)
+                module.register_forward_hook(hook_fn)
     
     def _register_attention_forward_replacement(self, model):
         """
